@@ -62,7 +62,7 @@ outputs:
   comments-posted:
     description: "Number of inline comments posted"
   skipped-reason:
-    description: "Reason no comments were posted (including model_access_denied or all_supported_files_skipped)"
+    description: "Reason no comments were posted (including model_access_denied, copilot_unavailable, or all_supported_files_skipped)"
   analysis-overview:
     description: "JSON summary of model, checks, file-level findings, and filtering outcomes"
 

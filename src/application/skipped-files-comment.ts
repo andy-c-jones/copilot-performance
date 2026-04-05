@@ -44,6 +44,13 @@ export async function upsertSkippedFilesComment(
     return;
   }
 
+  const hasNonDirectoryRuleSkip = input.skippedFiles.some(
+    (file) => file.reason !== "directory_rule"
+  );
+  if (!hasNonDirectoryRuleSkip) {
+    return;
+  }
+
   const skippedRows = input.skippedFiles
     .map((file) => {
       return `- \`${file.path}\` (${file.language}): ${describeSkippedFileReason(file)}`;

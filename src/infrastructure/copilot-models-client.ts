@@ -72,6 +72,37 @@ export class CopilotModelAccessError extends Error {
   }
 }
 
+export class CopilotServiceUnavailableError extends Error {
+  public constructor(
+    public readonly model: string,
+    public readonly status: number,
+    public readonly responseBody: string,
+    public readonly errorCode?: string
+  ) {
+    const codeSegment = errorCode ? `, code ${errorCode}` : "";
+    super(`Copilot service unavailable for model '${model}' (status ${status}${codeSegment}).`);
+    this.name = "CopilotServiceUnavailableError";
+  }
+}
+
+const COPILOT_UNAVAILABLE_ERROR_CODES = new Set([
+  "rate_limit_exceeded",
+  "tokens_limit_reached",
+  "service_unavailable",
+  "model_overloaded"
+]);
+
+function isCopilotUnavailableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+function isCopilotUnavailableCode(code: string | undefined): boolean {
+  if (!code) {
+    return false;
+  }
+  return COPILOT_UNAVAILABLE_ERROR_CODES.has(code);
+}
+
 function extractMessageText(response: ChatCompletionResponse): string {
   const content = response.choices?.[0]?.message?.content;
   if (typeof content === "string") {
@@ -113,32 +144,47 @@ export class CopilotModelsClient implements PerformanceAnalyzer {
   public async analyzeFile(input: AnalyzeFileInput): Promise<PerformanceFinding[]> {
     const prompts = buildCopilotPrompts(input);
 
-    const response = await fetch(this.options.apiUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.options.token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: this.options.model,
-        temperature: 0.1,
-        messages: [
-          {
-            role: "system",
-            content: prompts.systemPrompt
-          },
-          {
-            role: "user",
-            content: prompts.userPrompt
-          }
-        ]
-      })
-    });
+    let response: Response;
+    try {
+      response = await fetch(this.options.apiUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.options.token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: this.options.model,
+          temperature: 0.1,
+          messages: [
+            {
+              role: "system",
+              content: prompts.systemPrompt
+            },
+            {
+              role: "user",
+              content: prompts.userPrompt
+            }
+          ]
+        })
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown fetch failure.";
+      throw new CopilotServiceUnavailableError(this.options.model, 0, message, "network_error");
+    }
 
     if (!response.ok) {
       const body = await response.text();
-      if (response.status === 403 && parseCopilotErrorCode(body) === "no_access") {
+      const errorCode = parseCopilotErrorCode(body);
+      if (response.status === 403 && errorCode === "no_access") {
         throw new CopilotModelAccessError(this.options.model, response.status, body);
+      }
+      if (isCopilotUnavailableStatus(response.status) || isCopilotUnavailableCode(errorCode)) {
+        throw new CopilotServiceUnavailableError(
+          this.options.model,
+          response.status,
+          body,
+          errorCode
+        );
       }
       throw new Error(`Copilot request failed (${response.status}): ${body}`);
     }

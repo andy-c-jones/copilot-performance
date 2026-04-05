@@ -98,9 +98,11 @@ npm run build
 
 If the token cannot access the configured model, the action now exits successfully with `skipped-reason=model_access_denied` and a warning message, instead of failing the workflow.
 
+If Copilot is rate limited or temporarily unavailable, the action also exits successfully with `skipped-reason=copilot_unavailable` and logs a warning.
+
 Even when no comments are posted, the action logs a detailed **Performance analysis overview** section and emits `analysis-overview` so you can see what was checked and how findings were filtered.
 
-When files are skipped (for example, generated artifacts, configured JS/TS directories, or size limits), the action posts a PR comment summarizing which files were skipped and why.
+When files are skipped (for example, generated artifacts or size limits), the action posts a PR comment summarizing which files were skipped and why. Directory-rule-only skips (`skip-js-ts-directories`) do not produce a PR comment by themselves, but are included when other skip reasons are present.
 
 ## GitHub Models limits
 

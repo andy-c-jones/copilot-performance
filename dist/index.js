@@ -19922,6 +19922,7 @@ function describeSkippedFileReason(skippedFile) {
 }
 async function upsertSkippedFilesComment(input) {
 	if (input.skippedFiles.length === 0) return;
+	if (!input.skippedFiles.some((file) => file.reason !== "directory_rule")) return;
 	const skippedRows = input.skippedFiles.map((file) => {
 		return `- \`${file.path}\` (${file.language}): ${describeSkippedFileReason(file)}`;
 	}).join("\n");
@@ -23742,6 +23743,30 @@ var CopilotModelAccessError = class extends Error {
 		this.name = "CopilotModelAccessError";
 	}
 };
+var CopilotServiceUnavailableError = class extends Error {
+	constructor(model, status, responseBody, errorCode) {
+		const codeSegment = errorCode ? `, code ${errorCode}` : "";
+		super(`Copilot service unavailable for model '${model}' (status ${status}${codeSegment}).`);
+		this.model = model;
+		this.status = status;
+		this.responseBody = responseBody;
+		this.errorCode = errorCode;
+		this.name = "CopilotServiceUnavailableError";
+	}
+};
+var COPILOT_UNAVAILABLE_ERROR_CODES = new Set([
+	"rate_limit_exceeded",
+	"tokens_limit_reached",
+	"service_unavailable",
+	"model_overloaded"
+]);
+function isCopilotUnavailableStatus(status) {
+	return status === 429 || status >= 500;
+}
+function isCopilotUnavailableCode(code) {
+	if (!code) return false;
+	return COPILOT_UNAVAILABLE_ERROR_CODES.has(code);
+}
 function extractMessageText(response) {
 	const content = response.choices?.[0]?.message?.content;
 	if (typeof content === "string") return content;
@@ -23769,27 +23794,35 @@ var CopilotModelsClient = class {
 	}
 	async analyzeFile(input) {
 		const prompts = buildCopilotPrompts(input);
-		const response = await fetch(this.options.apiUrl, {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${this.options.token}`,
-				"Content-Type": "application/json"
-			},
-			body: JSON.stringify({
-				model: this.options.model,
-				temperature: .1,
-				messages: [{
-					role: "system",
-					content: prompts.systemPrompt
-				}, {
-					role: "user",
-					content: prompts.userPrompt
-				}]
-			})
-		});
+		let response;
+		try {
+			response = await fetch(this.options.apiUrl, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${this.options.token}`,
+					"Content-Type": "application/json"
+				},
+				body: JSON.stringify({
+					model: this.options.model,
+					temperature: .1,
+					messages: [{
+						role: "system",
+						content: prompts.systemPrompt
+					}, {
+						role: "user",
+						content: prompts.userPrompt
+					}]
+				})
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "Unknown fetch failure.";
+			throw new CopilotServiceUnavailableError(this.options.model, 0, message, "network_error");
+		}
 		if (!response.ok) {
 			const body = await response.text();
-			if (response.status === 403 && parseCopilotErrorCode(body) === "no_access") throw new CopilotModelAccessError(this.options.model, response.status, body);
+			const errorCode = parseCopilotErrorCode(body);
+			if (response.status === 403 && errorCode === "no_access") throw new CopilotModelAccessError(this.options.model, response.status, body);
+			if (isCopilotUnavailableStatus(response.status) || isCopilotUnavailableCode(errorCode)) throw new CopilotServiceUnavailableError(this.options.model, response.status, body, errorCode);
 			throw new Error(`Copilot request failed (${response.status}): ${body}`);
 		}
 		const parsed = extractJsonPayload(extractMessageText(await response.json()));
@@ -23919,6 +23952,26 @@ function setModelAccessDeniedOutputs(input) {
 		skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
 	}));
 }
+function setCopilotUnavailableOutputs(input, error) {
+	const statusText = error.status === 0 ? "network_error" : error.status.toString();
+	const codeText = error.errorCode ? ` (${error.errorCode})` : "";
+	warning(`Skipping Copilot analysis because the model service is unavailable for '${input.model}' [status ${statusText}${codeText}].`);
+	setOutput("supported-files-detected", "0");
+	setOutput("analyzed-files", "0");
+	setOutput("comments-posted", "0");
+	setOutput("skipped-reason", "copilot_unavailable");
+	setOutput("analysis-overview", JSON.stringify({
+		model: input.model,
+		skippedReason: "copilot_unavailable",
+		message: "Copilot service was unavailable. Review skipped without failing the workflow.",
+		status: error.status,
+		errorCode: error.errorCode ?? null,
+		impactLevel: input.impactLevel,
+		maxPatchCharacters: input.maxPatchCharacters,
+		maxFileCharacters: input.maxFileCharacters,
+		skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
+	}));
+}
 async function run() {
 	const eventName = context.eventName;
 	if (eventName !== "pull_request" && eventName !== "pull_request_target") {
@@ -23936,7 +23989,6 @@ async function run() {
 	}), {
 		minSeverity: inputs.minSeverity,
 		minConfidence: inputs.minConfidence,
-		impactLevel: inputs.impactLevel,
 		minImpactScore: inputs.minImpactScore,
 		maxFindingsPerFile: inputs.maxFindingsPerFile,
 		maxPatchCharacters: inputs.maxPatchCharacters,
@@ -23958,6 +24010,10 @@ async function run() {
 			setModelAccessDeniedOutputs(inputs);
 			return;
 		}
+		if (error instanceof CopilotServiceUnavailableError) {
+			setCopilotUnavailableOutputs(inputs, error);
+			return;
+		}
 		throw error;
 	}
 	setOutput("supported-files-detected", result.supportedFilesDetected.toString());
@@ -23968,6 +24024,7 @@ async function run() {
 		model: inputs.model,
 		minSeverity: inputs.minSeverity,
 		minConfidence: inputs.minConfidence,
+		impactLevel: inputs.impactLevel,
 		minImpactScore: inputs.minImpactScore,
 		maxPatchCharacters: inputs.maxPatchCharacters,
 		maxFileCharacters: inputs.maxFileCharacters,

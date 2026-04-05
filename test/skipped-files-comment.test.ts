@@ -39,7 +39,12 @@ const baseInput = {
   maxFileCharacters: 12000,
   skipDirectoriesForJavaScriptAndTypeScript: ["dist"],
   skippedFiles: [
-    { path: "dist/index.js", language: "javascript" as const, reason: "directory_rule" as const }
+    {
+      path: "src/large.ts",
+      language: "typescript" as const,
+      reason: "patch_too_large" as const,
+      patchCharacters: 7001
+    }
   ]
 };
 
@@ -85,6 +90,20 @@ describe("skipped files comment helper", () => {
     expect(fake.updateComment).not.toHaveBeenCalled();
   });
 
+  it("does nothing when all skipped files are only directory-rule skips", async () => {
+    const fake = createFakeOctokit();
+
+    await upsertSkippedFilesComment({
+      octokit: fake.octokit,
+      ...baseInput,
+      skippedFiles: [{ path: "dist/index.js", language: "javascript", reason: "directory_rule" }]
+    });
+
+    expect(fake.paginate).not.toHaveBeenCalled();
+    expect(fake.createComment).not.toHaveBeenCalled();
+    expect(fake.updateComment).not.toHaveBeenCalled();
+  });
+
   it("formats all known skip reasons in the comment body", async () => {
     const fake = createFakeOctokit();
 
@@ -93,6 +112,7 @@ describe("skipped files comment helper", () => {
       ...baseInput,
       skippedFiles: [
         { path: "dist/a.js", language: "javascript", reason: "generated_artifact" },
+        { path: "dist/b.ts", language: "typescript", reason: "directory_rule" },
         {
           path: "src/b.ts",
           language: "typescript",
@@ -110,6 +130,7 @@ describe("skipped files comment helper", () => {
 
     const createArgs = fake.createComment.mock.calls[0]?.[0];
     expect(createArgs?.body).toContain("generated/bundled artifact path");
+    expect(createArgs?.body).toContain("matched configured JS/TS skip directory rule");
     expect(createArgs?.body).toContain("patch exceeds limit");
     expect(createArgs?.body).toContain("file content exceeds limit");
   });

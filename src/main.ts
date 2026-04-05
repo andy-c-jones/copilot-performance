@@ -18,6 +18,7 @@ import {
 } from "./domain/types";
 import {
   CopilotModelAccessError,
+  CopilotServiceUnavailableError,
   CopilotModelsClient
 } from "./infrastructure/copilot-models-client";
 import { GitHubPullRequestClient } from "./infrastructure/github-pull-request-client";
@@ -138,6 +139,35 @@ function setModelAccessDeniedOutputs(input: ParsedActionInputs): void {
   );
 }
 
+function setCopilotUnavailableOutputs(
+  input: ParsedActionInputs,
+  error: CopilotServiceUnavailableError
+): void {
+  const statusText = error.status === 0 ? "network_error" : error.status.toString();
+  const codeText = error.errorCode ? ` (${error.errorCode})` : "";
+  core.warning(
+    `Skipping Copilot analysis because the model service is unavailable for '${input.model}' [status ${statusText}${codeText}].`
+  );
+  core.setOutput("supported-files-detected", "0");
+  core.setOutput("analyzed-files", "0");
+  core.setOutput("comments-posted", "0");
+  core.setOutput("skipped-reason", "copilot_unavailable");
+  core.setOutput(
+    "analysis-overview",
+    JSON.stringify({
+      model: input.model,
+      skippedReason: "copilot_unavailable",
+      message: "Copilot service was unavailable. Review skipped without failing the workflow.",
+      status: error.status,
+      errorCode: error.errorCode ?? null,
+      impactLevel: input.impactLevel,
+      maxPatchCharacters: input.maxPatchCharacters,
+      maxFileCharacters: input.maxFileCharacters,
+      skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
+    })
+  );
+}
+
 async function run(): Promise<void> {
   const eventName = github.context.eventName;
   if (eventName !== "pull_request" && eventName !== "pull_request_target") {
@@ -161,7 +191,6 @@ async function run(): Promise<void> {
   const service = new PerformanceReviewService(pullRequestClient, analyzer, {
     minSeverity: inputs.minSeverity,
     minConfidence: inputs.minConfidence,
-    impactLevel: inputs.impactLevel,
     minImpactScore: inputs.minImpactScore,
     maxFindingsPerFile: inputs.maxFindingsPerFile,
     maxPatchCharacters: inputs.maxPatchCharacters,
@@ -184,6 +213,10 @@ async function run(): Promise<void> {
       setModelAccessDeniedOutputs(inputs);
       return;
     }
+    if (error instanceof CopilotServiceUnavailableError) {
+      setCopilotUnavailableOutputs(inputs, error);
+      return;
+    }
     throw error;
   }
 
@@ -196,6 +229,7 @@ async function run(): Promise<void> {
     model: inputs.model,
     minSeverity: inputs.minSeverity,
     minConfidence: inputs.minConfidence,
+    impactLevel: inputs.impactLevel,
     minImpactScore: inputs.minImpactScore,
     maxPatchCharacters: inputs.maxPatchCharacters,
     maxFileCharacters: inputs.maxFileCharacters,
