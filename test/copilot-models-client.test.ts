@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AnalyzeFileInput } from "../src/application/ports";
 import {
   CopilotModelAccessError,
+  CopilotServiceUnavailableError,
   CopilotModelsClient
 } from "../src/infrastructure/copilot-models-client";
 
@@ -140,7 +141,7 @@ ${JSON.stringify({
 
   it("throws when API call fails", async () => {
     const fetchMock = vi.fn(async () => {
-      return new Response("boom", { status: 500 });
+      return new Response("boom", { status: 400 });
     });
 
     vi.stubGlobal("fetch", fetchMock);
@@ -150,7 +151,49 @@ ${JSON.stringify({
       model: "test-model"
     });
 
-    await expect(client.analyzeFile(analyzeInput)).rejects.toThrow("Copilot request failed (500)");
+    await expect(client.analyzeFile(analyzeInput)).rejects.toThrow("Copilot request failed (400)");
+  });
+
+  it("throws unavailable error when API is rate limited", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: "rate_limit_exceeded",
+            message: "Too many requests"
+          }
+        }),
+        { status: 429 }
+      );
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CopilotModelsClient({
+      token: "token",
+      apiUrl: "https://example.test/chat",
+      model: "test-model"
+    });
+
+    await expect(client.analyzeFile(analyzeInput)).rejects.toBeInstanceOf(
+      CopilotServiceUnavailableError
+    );
+  });
+
+  it("throws unavailable error on network failure", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error("network down");
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CopilotModelsClient({
+      token: "token",
+      apiUrl: "https://example.test/chat",
+      model: "test-model"
+    });
+
+    await expect(client.analyzeFile(analyzeInput)).rejects.toBeInstanceOf(
+      CopilotServiceUnavailableError
+    );
   });
 
   it("throws model access error when model is denied", async () => {

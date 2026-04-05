@@ -13,7 +13,7 @@ export interface PerformanceReviewServiceOptions {
   maxPatchCharacters: number;
   maxFileCharacters: number;
   skipGeneratedArtifacts: boolean;
-  skipDirectoriesForJavaScriptAndTypeScript: string[];
+  skipDirectories: string[];
   reviewSummary: string;
 }
 
@@ -69,15 +69,7 @@ function normalizeDirectoryPrefix(prefix: string): string {
     .replace(/\/+$/, "");
 }
 
-function shouldSkipByDirectoryRule(
-  language: SupportedLanguage,
-  path: string,
-  configuredPrefixes: string[]
-): boolean {
-  if (language !== "javascript" && language !== "typescript") {
-    return false;
-  }
-
+function shouldSkipByDirectoryRule(path: string, configuredPrefixes: string[]): boolean {
   const normalizedPath = path.replace(/^\.?\//, "");
   const normalizedPrefixes = configuredPrefixes
     .map((prefix) => normalizeDirectoryPrefix(prefix))
@@ -291,13 +283,7 @@ export class PerformanceReviewService {
       };
     }
 
-    if (
-      shouldSkipByDirectoryRule(
-        file.language,
-        file.path,
-        this.options.skipDirectoriesForJavaScriptAndTypeScript
-      )
-    ) {
+    if (shouldSkipByDirectoryRule(file.path, this.options.skipDirectories)) {
       return {
         path: file.path,
         language: file.language,

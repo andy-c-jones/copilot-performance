@@ -15,7 +15,7 @@ function describeSkippedFileReason(skippedFile: {
     case "generated_artifact":
       return "generated/bundled artifact path";
     case "directory_rule":
-      return "matched configured JS/TS skip directory rule";
+      return "matched configured skip directory rule";
     case "patch_too_large":
       return `patch exceeds limit (${skippedFile.patchCharacters ?? 0} chars)`;
     case "file_too_large":
@@ -33,7 +33,7 @@ export interface UpsertSkippedFilesCommentInput {
   model: string;
   maxPatchCharacters: number;
   maxFileCharacters: number;
-  skipDirectoriesForJavaScriptAndTypeScript: string[];
+  skipDirectories: string[];
   skippedFiles: SkippedFileTrace[];
 }
 
@@ -41,6 +41,13 @@ export async function upsertSkippedFilesComment(
   input: UpsertSkippedFilesCommentInput
 ): Promise<void> {
   if (input.skippedFiles.length === 0) {
+    return;
+  }
+
+  const hasNonDirectoryRuleSkip = input.skippedFiles.some(
+    (file) => file.reason !== "directory_rule"
+  );
+  if (!hasNonDirectoryRuleSkip) {
     return;
   }
 
@@ -56,7 +63,7 @@ export async function upsertSkippedFilesComment(
     "",
     `Configured model: \`${input.model}\``,
     `Skip limits: patch <= ${input.maxPatchCharacters} chars, file <= ${input.maxFileCharacters} chars`,
-    `JS/TS skip directories: ${input.skipDirectoriesForJavaScriptAndTypeScript.join(", ") || "none"}`,
+    `Skip directories: ${input.skipDirectories.join(", ") || "none"}`,
     "",
     skippedRows
   ].join("\n");

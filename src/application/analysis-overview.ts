@@ -13,7 +13,7 @@ export interface AnalysisOverviewContext {
   maxPatchCharacters: number;
   maxFileCharacters: number;
   skipGeneratedArtifacts: boolean;
-  skipDirectoriesForJavaScriptAndTypeScript: string[];
+  skipDirectories: string[];
   result: ReviewPullRequestResult;
 }
 
@@ -32,7 +32,7 @@ export function buildAnalysisOverviewOutput(
       maxPatchCharacters: input.maxPatchCharacters,
       maxFileCharacters: input.maxFileCharacters,
       skipGeneratedArtifacts: input.skipGeneratedArtifacts,
-      skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
+      skipDirectories: input.skipDirectories
     },
     activeLanguages: input.result.activeLanguages,
     supportedFilesDetected: input.result.supportedFilesDetected,
@@ -59,9 +59,7 @@ export function logAnalysisOverview(input: AnalysisOverviewContext): void {
     `Skip limits: patch<=${input.maxPatchCharacters} chars, file<=${input.maxFileCharacters} chars`
   );
   core.info(`Skip generated artifacts: ${input.skipGeneratedArtifacts ? "enabled" : "disabled"}`);
-  core.info(
-    `JS/TS skip directories: ${input.skipDirectoriesForJavaScriptAndTypeScript.join(", ") || "none"}`
-  );
+  core.info(`Skip directories: ${input.skipDirectories.join(", ") || "none"}`);
   core.info(`Languages analyzed: ${languages}`);
   if (checks.length > 0) {
     core.info(`Checks applied: ${checks.join("; ")}`);

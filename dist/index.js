@@ -19478,7 +19478,7 @@ function buildAnalysisOverviewOutput(input) {
 			maxPatchCharacters: input.maxPatchCharacters,
 			maxFileCharacters: input.maxFileCharacters,
 			skipGeneratedArtifacts: input.skipGeneratedArtifacts,
-			skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
+			skipDirectories: input.skipDirectories
 		},
 		activeLanguages: input.result.activeLanguages,
 		supportedFilesDetected: input.result.supportedFilesDetected,
@@ -19499,7 +19499,7 @@ function logAnalysisOverview(input) {
 	info(`Thresholds: severity>=${input.minSeverity}, confidence>=${input.minConfidence}, impact-level>=${input.impactLevel} (score>=${input.minImpactScore})`);
 	info(`Skip limits: patch<=${input.maxPatchCharacters} chars, file<=${input.maxFileCharacters} chars`);
 	info(`Skip generated artifacts: ${input.skipGeneratedArtifacts ? "enabled" : "disabled"}`);
-	info(`JS/TS skip directories: ${input.skipDirectoriesForJavaScriptAndTypeScript.join(", ") || "none"}`);
+	info(`Skip directories: ${input.skipDirectories.join(", ") || "none"}`);
 	info(`Languages analyzed: ${languages}`);
 	if (checks.length > 0) info(`Checks applied: ${checks.join("; ")}`);
 	info(`Supported files detected: ${input.result.supportedFilesDetected}`);
@@ -19706,8 +19706,7 @@ function isGeneratedArtifactPath(path) {
 function normalizeDirectoryPrefix(prefix) {
 	return prefix.trim().replace(/^\.?\//, "").replace(/\/+$/, "");
 }
-function shouldSkipByDirectoryRule(language, path, configuredPrefixes) {
-	if (language !== "javascript" && language !== "typescript") return false;
+function shouldSkipByDirectoryRule(path, configuredPrefixes) {
 	const normalizedPath = path.replace(/^\.?\//, "");
 	return configuredPrefixes.map((prefix) => normalizeDirectoryPrefix(prefix)).filter((prefix) => prefix.length > 0).some((prefix) => {
 		return normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`);
@@ -19854,7 +19853,7 @@ var PerformanceReviewService = class {
 			reason: "generated_artifact",
 			patchCharacters: file.patch?.length
 		};
-		if (shouldSkipByDirectoryRule(file.language, file.path, this.options.skipDirectoriesForJavaScriptAndTypeScript)) return {
+		if (shouldSkipByDirectoryRule(file.path, this.options.skipDirectories)) return {
 			path: file.path,
 			language: file.language,
 			reason: "directory_rule",
@@ -19914,7 +19913,7 @@ var SKIPPED_COMMENT_MARKER = "<!-- copilot-performance-skipped-files -->";
 function describeSkippedFileReason(skippedFile) {
 	switch (skippedFile.reason) {
 		case "generated_artifact": return "generated/bundled artifact path";
-		case "directory_rule": return "matched configured JS/TS skip directory rule";
+		case "directory_rule": return "matched configured skip directory rule";
 		case "patch_too_large": return `patch exceeds limit (${skippedFile.patchCharacters ?? 0} chars)`;
 		case "file_too_large": return `file content exceeds limit (${skippedFile.fileCharacters ?? 0} chars)`;
 		default: return "unknown skip reason";
@@ -19922,6 +19921,7 @@ function describeSkippedFileReason(skippedFile) {
 }
 async function upsertSkippedFilesComment(input) {
 	if (input.skippedFiles.length === 0) return;
+	if (!input.skippedFiles.some((file) => file.reason !== "directory_rule")) return;
 	const skippedRows = input.skippedFiles.map((file) => {
 		return `- \`${file.path}\` (${file.language}): ${describeSkippedFileReason(file)}`;
 	}).join("\n");
@@ -19931,7 +19931,7 @@ async function upsertSkippedFilesComment(input) {
 		"",
 		`Configured model: \`${input.model}\``,
 		`Skip limits: patch <= ${input.maxPatchCharacters} chars, file <= ${input.maxFileCharacters} chars`,
-		`JS/TS skip directories: ${input.skipDirectoriesForJavaScriptAndTypeScript.join(", ") || "none"}`,
+		`Skip directories: ${input.skipDirectories.join(", ") || "none"}`,
 		"",
 		skippedRows
 	].join("\n");
@@ -23742,6 +23742,30 @@ var CopilotModelAccessError = class extends Error {
 		this.name = "CopilotModelAccessError";
 	}
 };
+var CopilotServiceUnavailableError = class extends Error {
+	constructor(model, status, responseBody, errorCode) {
+		const codeSegment = errorCode ? `, code ${errorCode}` : "";
+		super(`Copilot service unavailable for model '${model}' (status ${status}${codeSegment}).`);
+		this.model = model;
+		this.status = status;
+		this.responseBody = responseBody;
+		this.errorCode = errorCode;
+		this.name = "CopilotServiceUnavailableError";
+	}
+};
+var COPILOT_UNAVAILABLE_ERROR_CODES = new Set([
+	"rate_limit_exceeded",
+	"tokens_limit_reached",
+	"service_unavailable",
+	"model_overloaded"
+]);
+function isCopilotUnavailableStatus(status) {
+	return status === 429 || status >= 500;
+}
+function isCopilotUnavailableCode(code) {
+	if (!code) return false;
+	return COPILOT_UNAVAILABLE_ERROR_CODES.has(code);
+}
 function extractMessageText(response) {
 	const content = response.choices?.[0]?.message?.content;
 	if (typeof content === "string") return content;
@@ -23769,27 +23793,35 @@ var CopilotModelsClient = class {
 	}
 	async analyzeFile(input) {
 		const prompts = buildCopilotPrompts(input);
-		const response = await fetch(this.options.apiUrl, {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${this.options.token}`,
-				"Content-Type": "application/json"
-			},
-			body: JSON.stringify({
-				model: this.options.model,
-				temperature: .1,
-				messages: [{
-					role: "system",
-					content: prompts.systemPrompt
-				}, {
-					role: "user",
-					content: prompts.userPrompt
-				}]
-			})
-		});
+		let response;
+		try {
+			response = await fetch(this.options.apiUrl, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${this.options.token}`,
+					"Content-Type": "application/json"
+				},
+				body: JSON.stringify({
+					model: this.options.model,
+					temperature: .1,
+					messages: [{
+						role: "system",
+						content: prompts.systemPrompt
+					}, {
+						role: "user",
+						content: prompts.userPrompt
+					}]
+				})
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : "Unknown fetch failure.";
+			throw new CopilotServiceUnavailableError(this.options.model, 0, message, "network_error");
+		}
 		if (!response.ok) {
 			const body = await response.text();
-			if (response.status === 403 && parseCopilotErrorCode(body) === "no_access") throw new CopilotModelAccessError(this.options.model, response.status, body);
+			const errorCode = parseCopilotErrorCode(body);
+			if (response.status === 403 && errorCode === "no_access") throw new CopilotModelAccessError(this.options.model, response.status, body);
+			if (isCopilotUnavailableStatus(response.status) || isCopilotUnavailableCode(errorCode)) throw new CopilotServiceUnavailableError(this.options.model, response.status, body, errorCode);
 			throw new Error(`Copilot request failed (${response.status}): ${body}`);
 		}
 		const parsed = extractJsonPayload(extractMessageText(await response.json()));
@@ -23899,7 +23931,7 @@ function parseInputs() {
 		maxPatchCharacters: parsePositiveInteger(getInput("max-patch-characters") || "6000", "max-patch-characters"),
 		maxFileCharacters: parsePositiveInteger(getInput("max-file-characters") || "12000", "max-file-characters"),
 		skipGeneratedArtifacts: parseBooleanInput(getInput("skip-generated-artifacts") || "true", "skip-generated-artifacts"),
-		skipDirectoriesForJavaScriptAndTypeScript: parseCsvInput(getInput("skip-js-ts-directories") || ""),
+		skipDirectories: parseCsvInput(getInput("skip") || ""),
 		reviewSummary: getInput("review-summary") || "Performance review suggestions from Copilot. Address only if the impact aligns with your workload profile."
 	};
 }
@@ -23916,7 +23948,27 @@ function setModelAccessDeniedOutputs(input) {
 		impactLevel: input.impactLevel,
 		maxPatchCharacters: input.maxPatchCharacters,
 		maxFileCharacters: input.maxFileCharacters,
-		skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
+		skipDirectories: input.skipDirectories
+	}));
+}
+function setCopilotUnavailableOutputs(input, error) {
+	const statusText = error.status === 0 ? "network_error" : error.status.toString();
+	const codeText = error.errorCode ? ` (${error.errorCode})` : "";
+	warning(`Skipping Copilot analysis because the model service is unavailable for '${input.model}' [status ${statusText}${codeText}].`);
+	setOutput("supported-files-detected", "0");
+	setOutput("analyzed-files", "0");
+	setOutput("comments-posted", "0");
+	setOutput("skipped-reason", "copilot_unavailable");
+	setOutput("analysis-overview", JSON.stringify({
+		model: input.model,
+		skippedReason: "copilot_unavailable",
+		message: "Copilot service was unavailable. Review skipped without failing the workflow.",
+		status: error.status,
+		errorCode: error.errorCode ?? null,
+		impactLevel: input.impactLevel,
+		maxPatchCharacters: input.maxPatchCharacters,
+		maxFileCharacters: input.maxFileCharacters,
+		skipDirectories: input.skipDirectories
 	}));
 }
 async function run() {
@@ -23936,13 +23988,12 @@ async function run() {
 	}), {
 		minSeverity: inputs.minSeverity,
 		minConfidence: inputs.minConfidence,
-		impactLevel: inputs.impactLevel,
 		minImpactScore: inputs.minImpactScore,
 		maxFindingsPerFile: inputs.maxFindingsPerFile,
 		maxPatchCharacters: inputs.maxPatchCharacters,
 		maxFileCharacters: inputs.maxFileCharacters,
 		skipGeneratedArtifacts: inputs.skipGeneratedArtifacts,
-		skipDirectoriesForJavaScriptAndTypeScript: inputs.skipDirectoriesForJavaScriptAndTypeScript,
+		skipDirectories: inputs.skipDirectories,
 		reviewSummary: inputs.reviewSummary
 	});
 	let result;
@@ -23958,6 +24009,10 @@ async function run() {
 			setModelAccessDeniedOutputs(inputs);
 			return;
 		}
+		if (error instanceof CopilotServiceUnavailableError) {
+			setCopilotUnavailableOutputs(inputs, error);
+			return;
+		}
 		throw error;
 	}
 	setOutput("supported-files-detected", result.supportedFilesDetected.toString());
@@ -23968,11 +24023,12 @@ async function run() {
 		model: inputs.model,
 		minSeverity: inputs.minSeverity,
 		minConfidence: inputs.minConfidence,
+		impactLevel: inputs.impactLevel,
 		minImpactScore: inputs.minImpactScore,
 		maxPatchCharacters: inputs.maxPatchCharacters,
 		maxFileCharacters: inputs.maxFileCharacters,
 		skipGeneratedArtifacts: inputs.skipGeneratedArtifacts,
-		skipDirectoriesForJavaScriptAndTypeScript: inputs.skipDirectoriesForJavaScriptAndTypeScript,
+		skipDirectories: inputs.skipDirectories,
 		result
 	};
 	setOutput("analysis-overview", JSON.stringify(buildAnalysisOverviewOutput(analysisOverviewContext)));
@@ -23985,7 +24041,7 @@ async function run() {
 		model: inputs.model,
 		maxPatchCharacters: inputs.maxPatchCharacters,
 		maxFileCharacters: inputs.maxFileCharacters,
-		skipDirectoriesForJavaScriptAndTypeScript: inputs.skipDirectoriesForJavaScriptAndTypeScript,
+		skipDirectories: inputs.skipDirectories,
 		skippedFiles: result.skippedFiles
 	});
 	if (result.skippedReason === "no_supported_languages") info("No supported languages detected in this PR. Copilot analysis was skipped.");
