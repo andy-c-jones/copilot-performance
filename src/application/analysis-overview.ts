@@ -2,12 +2,13 @@ import * as core from "@actions/core";
 
 import { getPerformanceCheckLabelsForLanguages } from "./prompt-modules";
 import type { ReviewPullRequestResult } from "./performance-review-service";
-import type { Confidence, Severity } from "../domain/types";
+import type { Confidence, ImpactLevel, Severity } from "../domain/types";
 
 export interface AnalysisOverviewContext {
   model: string;
   minSeverity: Severity;
   minConfidence: Confidence;
+  impactLevel: ImpactLevel;
   minImpactScore: number;
   maxPatchCharacters: number;
   maxFileCharacters: number;
@@ -24,6 +25,7 @@ export function buildAnalysisOverviewOutput(
     thresholds: {
       minSeverity: input.minSeverity,
       minConfidence: input.minConfidence,
+      impactLevel: input.impactLevel,
       minImpactScore: input.minImpactScore
     },
     limits: {
@@ -51,7 +53,7 @@ export function logAnalysisOverview(input: AnalysisOverviewContext): void {
   core.startGroup("Performance analysis overview");
   core.info(`Model: ${input.model}`);
   core.info(
-    `Thresholds: severity>=${input.minSeverity}, confidence>=${input.minConfidence}, impact>=${input.minImpactScore}`
+    `Thresholds: severity>=${input.minSeverity}, confidence>=${input.minConfidence}, impact-level>=${input.impactLevel} (score>=${input.minImpactScore})`
   );
   core.info(
     `Skip limits: patch<=${input.maxPatchCharacters} chars, file<=${input.maxFileCharacters} chars`

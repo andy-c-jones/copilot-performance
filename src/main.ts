@@ -8,7 +8,14 @@ import {
 } from "./application/analysis-overview";
 import { PerformanceReviewService } from "./application/performance-review-service";
 import { upsertSkippedFilesComment } from "./application/skipped-files-comment";
-import { CONFIDENCE_LEVELS, SEVERITY_LEVELS, type Confidence, type Severity } from "./domain/types";
+import { minImpactScoreForLevel, parseImpactLevel } from "./domain/impact-level";
+import {
+  CONFIDENCE_LEVELS,
+  SEVERITY_LEVELS,
+  type Confidence,
+  type ImpactLevel,
+  type Severity
+} from "./domain/types";
 import {
   CopilotModelAccessError,
   CopilotModelsClient
@@ -24,6 +31,7 @@ interface ParsedActionInputs {
   copilotApiUrl: string;
   minSeverity: Severity;
   minConfidence: Confidence;
+  impactLevel: ImpactLevel;
   minImpactScore: number;
   maxFindingsPerFile: number;
   maxPatchCharacters: number;
@@ -74,16 +82,15 @@ function parseCsvInput(input: string): string[] {
 }
 
 function parseInputs(): ParsedActionInputs {
+  const impactLevel = parseImpactLevel(core.getInput("impact-level") || "medium");
   return {
     githubToken: core.getInput("github-token", { required: true }),
     model: core.getInput("model") || DEFAULT_MODEL,
     copilotApiUrl: core.getInput("copilot-api-url") || DEFAULT_COPILOT_API_URL,
     minSeverity: parseSeverity(core.getInput("min-severity") || "medium"),
     minConfidence: parseConfidence(core.getInput("min-confidence") || "high"),
-    minImpactScore: parsePositiveInteger(
-      core.getInput("min-impact-score") || "3",
-      "min-impact-score"
-    ),
+    impactLevel,
+    minImpactScore: minImpactScoreForLevel(impactLevel),
     maxFindingsPerFile: parsePositiveInteger(
       core.getInput("max-findings-per-file") || "3",
       "max-findings-per-file"
@@ -123,6 +130,7 @@ function setModelAccessDeniedOutputs(input: ParsedActionInputs): void {
       model: input.model,
       skippedReason: "model_access_denied",
       message: "Model access denied for the configured token.",
+      impactLevel: input.impactLevel,
       maxPatchCharacters: input.maxPatchCharacters,
       maxFileCharacters: input.maxFileCharacters,
       skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
@@ -153,6 +161,7 @@ async function run(): Promise<void> {
   const service = new PerformanceReviewService(pullRequestClient, analyzer, {
     minSeverity: inputs.minSeverity,
     minConfidence: inputs.minConfidence,
+    impactLevel: inputs.impactLevel,
     minImpactScore: inputs.minImpactScore,
     maxFindingsPerFile: inputs.maxFindingsPerFile,
     maxPatchCharacters: inputs.maxPatchCharacters,

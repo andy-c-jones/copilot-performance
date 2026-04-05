@@ -19471,6 +19471,7 @@ function buildAnalysisOverviewOutput(input) {
 		thresholds: {
 			minSeverity: input.minSeverity,
 			minConfidence: input.minConfidence,
+			impactLevel: input.impactLevel,
 			minImpactScore: input.minImpactScore
 		},
 		limits: {
@@ -19495,7 +19496,7 @@ function logAnalysisOverview(input) {
 	const languages = input.result.activeLanguages.join(", ") || "none";
 	startGroup("Performance analysis overview");
 	info(`Model: ${input.model}`);
-	info(`Thresholds: severity>=${input.minSeverity}, confidence>=${input.minConfidence}, impact>=${input.minImpactScore}`);
+	info(`Thresholds: severity>=${input.minSeverity}, confidence>=${input.minConfidence}, impact-level>=${input.impactLevel} (score>=${input.minImpactScore})`);
 	info(`Skip limits: patch<=${input.maxPatchCharacters} chars, file<=${input.maxFileCharacters} chars`);
 	info(`Skip generated artifacts: ${input.skipGeneratedArtifacts ? "enabled" : "disabled"}`);
 	info(`JS/TS skip directories: ${input.skipDirectoriesForJavaScriptAndTypeScript.join(", ") || "none"}`);
@@ -19971,6 +19972,27 @@ var CONFIDENCE_LEVELS = [
 	"medium",
 	"high"
 ];
+var IMPACT_LEVELS = [
+	"all",
+	"low",
+	"medium",
+	"high"
+];
+//#endregion
+//#region src/domain/impact-level.ts
+var MIN_IMPACT_SCORE_BY_LEVEL = {
+	all: 1,
+	low: 2,
+	medium: 3,
+	high: 4
+};
+function parseImpactLevel(value) {
+	if (IMPACT_LEVELS.includes(value)) return value;
+	throw new Error(`Invalid impact-level value: ${value}`);
+}
+function minImpactScoreForLevel(level) {
+	return MIN_IMPACT_SCORE_BY_LEVEL[level];
+}
 Object.freeze({ status: "aborted" });
 function $constructor(name, initializer, params) {
 	function init(inst, def) {
@@ -23864,13 +23886,15 @@ function parseCsvInput(input) {
 	return input.split(",").map((value) => value.trim()).filter((value) => value.length > 0);
 }
 function parseInputs() {
+	const impactLevel = parseImpactLevel(getInput("impact-level") || "medium");
 	return {
 		githubToken: getInput("github-token", { required: true }),
 		model: getInput("model") || DEFAULT_MODEL,
 		copilotApiUrl: getInput("copilot-api-url") || DEFAULT_COPILOT_API_URL,
 		minSeverity: parseSeverity(getInput("min-severity") || "medium"),
 		minConfidence: parseConfidence(getInput("min-confidence") || "high"),
-		minImpactScore: parsePositiveInteger(getInput("min-impact-score") || "3", "min-impact-score"),
+		impactLevel,
+		minImpactScore: minImpactScoreForLevel(impactLevel),
 		maxFindingsPerFile: parsePositiveInteger(getInput("max-findings-per-file") || "3", "max-findings-per-file"),
 		maxPatchCharacters: parsePositiveInteger(getInput("max-patch-characters") || "6000", "max-patch-characters"),
 		maxFileCharacters: parsePositiveInteger(getInput("max-file-characters") || "12000", "max-file-characters"),
@@ -23889,6 +23913,7 @@ function setModelAccessDeniedOutputs(input) {
 		model: input.model,
 		skippedReason: "model_access_denied",
 		message: "Model access denied for the configured token.",
+		impactLevel: input.impactLevel,
 		maxPatchCharacters: input.maxPatchCharacters,
 		maxFileCharacters: input.maxFileCharacters,
 		skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
@@ -23911,6 +23936,7 @@ async function run() {
 	}), {
 		minSeverity: inputs.minSeverity,
 		minConfidence: inputs.minConfidence,
+		impactLevel: inputs.impactLevel,
 		minImpactScore: inputs.minImpactScore,
 		maxFindingsPerFile: inputs.maxFindingsPerFile,
 		maxPatchCharacters: inputs.maxPatchCharacters,

@@ -1,6 +1,7 @@
 export const SUPPORTED_LANGUAGES = ["javascript", "typescript", "sql", "csharp"] as const;
 export const SEVERITY_LEVELS = ["low", "medium", "high", "critical"] as const;
 export const CONFIDENCE_LEVELS = ["low", "medium", "high"] as const;
+export const IMPACT_LEVELS = ["all", "low", "medium", "high"] as const;
 export const SYMBOL_KINDS = [
   "function",
   "method",
@@ -13,6 +14,7 @@ export const SYMBOL_KINDS = [
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 export type Severity = (typeof SEVERITY_LEVELS)[number];
 export type Confidence = (typeof CONFIDENCE_LEVELS)[number];
+export type ImpactLevel = (typeof IMPACT_LEVELS)[number];
 export type SymbolKind = (typeof SYMBOL_KINDS)[number];
 
 export interface PullRequestFile {

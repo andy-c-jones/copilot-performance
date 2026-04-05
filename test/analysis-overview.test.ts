@@ -42,6 +42,7 @@ describe("analysis overview helpers", () => {
       model: "openai/gpt-4.1",
       minSeverity: "medium",
       minConfidence: "high",
+      impactLevel: "medium",
       minImpactScore: 3,
       maxPatchCharacters: 6000,
       maxFileCharacters: 12000,
@@ -52,6 +53,10 @@ describe("analysis overview helpers", () => {
 
     expect(output).toMatchObject({
       model: "openai/gpt-4.1",
+      thresholds: {
+        impactLevel: "medium",
+        minImpactScore: 3
+      },
       limits: {
         maxPatchCharacters: 6000,
         maxFileCharacters: 12000,
@@ -71,6 +76,7 @@ describe("analysis overview helpers", () => {
       model: "openai/gpt-4.1",
       minSeverity: "medium",
       minConfidence: "high",
+      impactLevel: "medium",
       minImpactScore: 3,
       maxPatchCharacters: 6000,
       maxFileCharacters: 12000,
@@ -93,6 +99,7 @@ describe("analysis overview helpers", () => {
       model: "openai/gpt-4.1",
       minSeverity: "medium",
       minConfidence: "high",
+      impactLevel: "medium",
       minImpactScore: 3,
       maxPatchCharacters: 6000,
       maxFileCharacters: 12000,

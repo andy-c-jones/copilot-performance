@@ -1,6 +1,6 @@
 # PR Performance Reviewer Action
 
-A JavaScript GitHub Action for Marketplace that reviews pull requests for high-impact performance issues and posts inline comments on the PR.
+A JavaScript GitHub Action for Marketplace that reviews pull requests for performance issues and posts inline comments on the PR.
 
 ## What it does
 
@@ -13,6 +13,7 @@ A JavaScript GitHub Action for Marketplace that reviews pull requests for high-i
 - Focuses on meaningful performance issues:
   - Big-O complexity and growth impact.
   - Common anti-patterns with practical severity.
+- Uses a configurable impact threshold (`all|low|medium|high`) with a default of `medium` and up.
 - Posts inline comments on changed lines, preferring method/function/class definition lines for symbol-level findings.
 - Posts nothing when no worthwhile suggestions are found.
 
@@ -25,7 +26,7 @@ A JavaScript GitHub Action for Marketplace that reviews pull requests for high-i
 | `copilot-api-url`          | No       | `https://models.github.ai/inference/chat/completions` | Chat completions endpoint                                          |
 | `min-severity`             | No       | `medium`                                              | `low\|medium\|high\|critical`                                      |
 | `min-confidence`           | No       | `high`                                                | `low\|medium\|high`                                                |
-| `min-impact-score`         | No       | `3`                                                   | Integer 1-5                                                        |
+| `impact-level`             | No       | `medium`                                              | `all\|low\|medium\|high`                                           |
 | `max-findings-per-file`    | No       | `3`                                                   | Cap findings per file                                              |
 | `max-patch-characters`     | No       | `6000`                                                | Skip files with very large patch text                              |
 | `max-file-characters`      | No       | `12000`                                               | Skip files with very large content snapshots                       |
@@ -81,6 +82,7 @@ jobs:
       - uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          impact-level: all
           skip-js-ts-directories: dist
 ```
 

@@ -1,5 +1,5 @@
 name: "PR Performance Reviewer"
-description: "Reviews pull requests for high-impact performance issues using Copilot/GitHub Models."
+description: "Reviews pull requests for performance issues using Copilot/GitHub Models."
 author: "andy-c-jones"
 branding:
   icon: "activity"
@@ -25,10 +25,10 @@ inputs:
     description: "Minimum confidence for posting review comments (low|medium|high)"
     required: false
     default: "high"
-  min-impact-score:
-    description: "Minimum impact score (1-5) for posting review comments"
+  impact-level:
+    description: "Minimum impact level for posting review comments (all|low|medium|high)"
     required: false
-    default: "3"
+    default: "medium"
   max-findings-per-file:
     description: "Maximum number of findings to keep per analyzed file"
     required: false
