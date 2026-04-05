@@ -1,0 +1,102 @@
+import * as core from "@actions/core";
+import * as github from "@actions/github";
+
+import { PerformanceReviewService } from "./application/performance-review-service";
+import { CONFIDENCE_LEVELS, SEVERITY_LEVELS, type Confidence, type Severity } from "./domain/types";
+import { CopilotModelsClient } from "./infrastructure/copilot-models-client";
+import { GitHubPullRequestClient } from "./infrastructure/github-pull-request-client";
+
+const DEFAULT_MODEL = "openai/gpt-4.1";
+const DEFAULT_COPILOT_API_URL = "https://models.github.ai/inference/chat/completions";
+
+function parseSeverity(value: string): Severity {
+  if ((SEVERITY_LEVELS as readonly string[]).includes(value)) {
+    return value as Severity;
+  }
+  throw new Error(`Invalid min-severity value: ${value}`);
+}
+
+function parseConfidence(value: string): Confidence {
+  if ((CONFIDENCE_LEVELS as readonly string[]).includes(value)) {
+    return value as Confidence;
+  }
+  throw new Error(`Invalid min-confidence value: ${value}`);
+}
+
+function parsePositiveInteger(input: string, fieldName: string): number {
+  const parsed = Number.parseInt(input, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    throw new Error(`${fieldName} must be a positive integer.`);
+  }
+  return parsed;
+}
+
+async function run(): Promise<void> {
+  const eventName = github.context.eventName;
+  if (eventName !== "pull_request" && eventName !== "pull_request_target") {
+    core.info(`Skipping event '${eventName}'. This action only runs on pull request events.`);
+    return;
+  }
+
+  const pullRequest = github.context.payload.pull_request;
+  if (!pullRequest?.number || !pullRequest.head?.sha) {
+    throw new Error("Missing pull request data from GitHub context.");
+  }
+
+  const githubToken = core.getInput("github-token", { required: true });
+  const model = core.getInput("model") || DEFAULT_MODEL;
+  const copilotApiUrl = core.getInput("copilot-api-url") || DEFAULT_COPILOT_API_URL;
+  const minSeverity = parseSeverity(core.getInput("min-severity") || "medium");
+  const minConfidence = parseConfidence(core.getInput("min-confidence") || "high");
+  const minImpactScore = parsePositiveInteger(
+    core.getInput("min-impact-score") || "3",
+    "min-impact-score"
+  );
+  const maxFindingsPerFile = parsePositiveInteger(
+    core.getInput("max-findings-per-file") || "3",
+    "max-findings-per-file"
+  );
+  const reviewSummary =
+    core.getInput("review-summary") ||
+    "Performance review suggestions from Copilot. Address only if the impact aligns with your workload profile.";
+
+  const octokit = github.getOctokit(githubToken);
+  const pullRequestClient = new GitHubPullRequestClient(octokit);
+  const analyzer = new CopilotModelsClient({
+    token: githubToken,
+    apiUrl: copilotApiUrl,
+    model
+  });
+  const service = new PerformanceReviewService(pullRequestClient, analyzer, {
+    minSeverity,
+    minConfidence,
+    minImpactScore,
+    maxFindingsPerFile,
+    reviewSummary
+  });
+
+  const result = await service.reviewPullRequest({
+    owner: github.context.repo.owner,
+    repo: github.context.repo.repo,
+    pullNumber: pullRequest.number,
+    headSha: pullRequest.head.sha
+  });
+
+  core.setOutput("supported-files-detected", result.supportedFilesDetected.toString());
+  core.setOutput("analyzed-files", result.analyzedFiles.toString());
+  core.setOutput("comments-posted", result.commentsPosted.toString());
+  core.setOutput("skipped-reason", result.skippedReason ?? "");
+
+  if (result.skippedReason === "no_supported_languages") {
+    core.info("No supported languages detected in this PR. Copilot analysis was skipped.");
+  } else if (result.skippedReason === "no_high_value_findings") {
+    core.info("No high-value performance findings were detected.");
+  } else {
+    core.info(`Posted ${result.commentsPosted} inline performance review comments.`);
+  }
+}
+
+void run().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : "Unknown error";
+  core.setFailed(message);
+});

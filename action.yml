@@ -1,0 +1,53 @@
+name: "PR Performance Reviewer"
+description: "Reviews pull requests for high-impact performance issues using Copilot/GitHub Models."
+author: "andy-c-jones"
+branding:
+  icon: "activity"
+  color: "purple"
+
+inputs:
+  github-token:
+    description: "GitHub token used for GitHub API + Copilot/GitHub Models calls"
+    required: true
+  model:
+    description: "Model identifier for the Copilot/GitHub Models endpoint"
+    required: false
+    default: "openai/gpt-4.1"
+  copilot-api-url:
+    description: "Copilot/GitHub Models chat completions endpoint URL"
+    required: false
+    default: "https://models.github.ai/inference/chat/completions"
+  min-severity:
+    description: "Minimum severity for posting review comments (low|medium|high|critical)"
+    required: false
+    default: "medium"
+  min-confidence:
+    description: "Minimum confidence for posting review comments (low|medium|high)"
+    required: false
+    default: "high"
+  min-impact-score:
+    description: "Minimum impact score (1-5) for posting review comments"
+    required: false
+    default: "3"
+  max-findings-per-file:
+    description: "Maximum number of findings to keep per analyzed file"
+    required: false
+    default: "3"
+  review-summary:
+    description: "Body text used for the submitted pull request review"
+    required: false
+    default: "Performance review suggestions from Copilot. Address only if the impact aligns with your workload profile."
+
+outputs:
+  supported-files-detected:
+    description: "Number of changed files with supported language extensions"
+  analyzed-files:
+    description: "Number of files sent to Copilot analysis"
+  comments-posted:
+    description: "Number of inline comments posted"
+  skipped-reason:
+    description: "Reason no comments were posted (if applicable)"
+
+runs:
+  using: "node20"
+  main: "dist/index.js"

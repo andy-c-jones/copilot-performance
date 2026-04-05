@@ -1,0 +1,6 @@
+coverage
+node_modules
+
+# JavaScript action artifacts must be committed for Marketplace/local usage.
+!dist/
+!dist/**
