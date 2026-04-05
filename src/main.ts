@@ -1,6 +1,7 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
 
+import { getPerformanceCheckLabelsForLanguages } from "./application/prompt-modules";
 import { PerformanceReviewService } from "./application/performance-review-service";
 import { CONFIDENCE_LEVELS, SEVERITY_LEVELS, type Confidence, type Severity } from "./domain/types";
 import {
@@ -32,6 +33,39 @@ function parsePositiveInteger(input: string, fieldName: string): number {
     throw new Error(`${fieldName} must be a positive integer.`);
   }
   return parsed;
+}
+
+function logAnalysisOverview(input: {
+  model: string;
+  minSeverity: Severity;
+  minConfidence: Confidence;
+  minImpactScore: number;
+  result: Awaited<ReturnType<PerformanceReviewService["reviewPullRequest"]>>;
+}): void {
+  const checks = getPerformanceCheckLabelsForLanguages(input.result.activeLanguages);
+  const languages = input.result.activeLanguages.join(", ") || "none";
+
+  core.startGroup("Performance analysis overview");
+  core.info(`Model: ${input.model}`);
+  core.info(
+    `Thresholds: severity>=${input.minSeverity}, confidence>=${input.minConfidence}, impact>=${input.minImpactScore}`
+  );
+  core.info(`Languages analyzed: ${languages}`);
+  if (checks.length > 0) {
+    core.info(`Checks applied: ${checks.join("; ")}`);
+  }
+  core.info(`Supported files detected: ${input.result.supportedFilesDetected}`);
+  core.info(`Files analyzed: ${input.result.analyzedFiles}`);
+  core.info(`Raw findings generated: ${input.result.totalRawFindings}`);
+  core.info(`High-value findings after filtering: ${input.result.totalHighValueFindings}`);
+  core.info(`Comments posted: ${input.result.commentsPosted}`);
+
+  for (const fileSummary of input.result.analysisTrace) {
+    core.info(
+      `- ${fileSummary.path} (${fileSummary.language}): raw=${fileSummary.rawFindings}, high-value=${fileSummary.highValueFindings}, comments-ready=${fileSummary.commentsPrepared}`
+    );
+  }
+  core.endGroup();
 }
 
 async function run(): Promise<void> {
@@ -95,6 +129,14 @@ async function run(): Promise<void> {
       core.setOutput("analyzed-files", "0");
       core.setOutput("comments-posted", "0");
       core.setOutput("skipped-reason", "model_access_denied");
+      core.setOutput(
+        "analysis-overview",
+        JSON.stringify({
+          model,
+          skippedReason: "model_access_denied",
+          message: "Model access denied for the configured token."
+        })
+      );
       return;
     }
     throw error;
@@ -104,6 +146,33 @@ async function run(): Promise<void> {
   core.setOutput("analyzed-files", result.analyzedFiles.toString());
   core.setOutput("comments-posted", result.commentsPosted.toString());
   core.setOutput("skipped-reason", result.skippedReason ?? "");
+  core.setOutput(
+    "analysis-overview",
+    JSON.stringify({
+      model,
+      thresholds: {
+        minSeverity,
+        minConfidence,
+        minImpactScore
+      },
+      activeLanguages: result.activeLanguages,
+      supportedFilesDetected: result.supportedFilesDetected,
+      analyzedFiles: result.analyzedFiles,
+      totalRawFindings: result.totalRawFindings,
+      totalHighValueFindings: result.totalHighValueFindings,
+      commentsPosted: result.commentsPosted,
+      skippedReason: result.skippedReason ?? null,
+      analysisTrace: result.analysisTrace
+    })
+  );
+
+  logAnalysisOverview({
+    model,
+    minSeverity,
+    minConfidence,
+    minImpactScore,
+    result
+  });
 
   if (result.skippedReason === "no_supported_languages") {
     core.info("No supported languages detected in this PR. Copilot analysis was skipped.");

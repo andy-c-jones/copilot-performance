@@ -31,12 +31,13 @@ A JavaScript GitHub Action for Marketplace that reviews pull requests for high-i
 
 ## Outputs
 
-| Name                       | Description                         |
-| -------------------------- | ----------------------------------- |
-| `supported-files-detected` | Number of supported files in the PR |
-| `analyzed-files`           | Number of files analyzed by Copilot |
-| `comments-posted`          | Number of inline comments submitted |
-| `skipped-reason`           | Skip reason, if nothing was posted  |
+| Name                       | Description                                                   |
+| -------------------------- | ------------------------------------------------------------- |
+| `supported-files-detected` | Number of supported files in the PR                           |
+| `analyzed-files`           | Number of files analyzed by Copilot                           |
+| `comments-posted`          | Number of inline comments submitted                           |
+| `skipped-reason`           | Skip reason, if nothing was posted                            |
+| `analysis-overview`        | JSON summary of checks, per-file findings, and filter results |
 
 ## Usage
 
@@ -89,6 +90,8 @@ npm run build
 ```
 
 If the token cannot access the configured model, the action now exits successfully with `skipped-reason=model_access_denied` and a warning message, instead of failing the workflow.
+
+Even when no comments are posted, the action logs a detailed **Performance analysis overview** section and emits `analysis-overview` so you can see what was checked and how findings were filtered.
 
 ## Marketplace publishing note
 

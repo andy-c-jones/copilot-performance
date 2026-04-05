@@ -83,6 +83,9 @@ describe("performance review service", () => {
     });
 
     expect(result.skippedReason).toBe("no_supported_languages");
+    expect(result.activeLanguages).toEqual([]);
+    expect(result.totalRawFindings).toBe(0);
+    expect(result.analysisTrace).toEqual([]);
     expect(repoClient.submittedReviews).toHaveLength(0);
     expect(analyzer.analyzeFile).not.toHaveBeenCalled();
   });
@@ -120,6 +123,10 @@ describe("performance review service", () => {
 
     const firstReview = repoClient.submittedReviews[0];
     expect(result.commentsPosted).toBe(1);
+    expect(result.totalRawFindings).toBe(1);
+    expect(result.totalHighValueFindings).toBe(1);
+    expect(result.activeLanguages).toEqual(["typescript"]);
+    expect(result.analysisTrace[0]?.path).toBe("src/a.ts");
     expect(repoClient.submittedReviews).toHaveLength(1);
     expect(firstReview?.comments[0]?.line).toBe(1);
   });

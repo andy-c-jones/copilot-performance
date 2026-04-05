@@ -102,6 +102,9 @@ function issueCommand(command, properties, message) {
 	const cmd = new Command(command, properties, message);
 	process.stdout.write(cmd.toString() + os.EOL);
 }
+function issue$1(name, message = "") {
+	issueCommand(name, {}, message);
+}
 var CMD_STRING = "::";
 var Command = class {
 	constructor(command, properties, message) {
@@ -16197,6 +16200,22 @@ function warning(message, properties = {}) {
 function info(message) {
 	process.stdout.write(message + os.EOL);
 }
+/**
+* Begin an output group.
+*
+* Output until the next `groupEnd` will be foldable in this group
+*
+* @param name The name of the output group
+*/
+function startGroup(name) {
+	issue$1("group", name);
+}
+/**
+* End an output group.
+*/
+function endGroup() {
+	issue$1("endgroup");
+}
 //#endregion
 //#region node_modules/@actions/github/lib/context.js
 var Context = class {
@@ -19397,6 +19416,54 @@ function getOctokit(token, options, ...additionalPlugins) {
 	return new (GitHub.plugin(...additionalPlugins))(getOctokitOptions(token, options));
 }
 //#endregion
+//#region src/application/prompt-modules.ts
+var MODULES = {
+	javascript: {
+		language: "javascript",
+		checkLabels: [
+			"Big-O complexity and nested iteration hotspots",
+			"Repeated work in render/lifecycle paths",
+			"React re-render churn and unstable dependencies",
+			"Web Components lifecycle and DOM query costs"
+		],
+		focusAreas: ["For React code, inspect render-path costs, repeated expensive computation inside render, unstable dependency arrays, and unnecessary re-renders caused by props identity churn.", "For Web Components, inspect lifecycle callback hotspots, repeated DOM querying, large synchronous layout/reflow triggers, and listener leaks in connected/disconnected flows."]
+	},
+	typescript: {
+		language: "typescript",
+		checkLabels: [
+			"Big-O complexity and nested iteration hotspots",
+			"Repeated data shaping and serialization overhead",
+			"Runtime allocation pressure from intermediate objects/arrays"
+		],
+		focusAreas: ["Apply the same JavaScript runtime performance checks while considering TypeScript abstractions that can hide expensive runtime loops.", "Pay special attention to repeated data shaping, serialization/deserialization in hot paths, and avoid over-allocating intermediate arrays/objects."]
+	},
+	sql: {
+		language: "sql",
+		checkLabels: [
+			"Query complexity and cardinality growth",
+			"Non-sargable predicates and index-miss patterns",
+			"N+1 style query behavior"
+		],
+		focusAreas: ["Look for missing selective predicates, non-sargable filters, accidental cartesian products, and expensive functions inside WHERE or JOIN conditions.", "Flag N+1 style query patterns inferred from SQL changes and suggest index-aware alternatives."]
+	},
+	csharp: {
+		language: "csharp",
+		checkLabels: [
+			"EF query materialization and tracking overhead",
+			"NHibernate loading strategy and batching",
+			"Data-access query complexity and over-fetching"
+		],
+		focusAreas: ["For EF, check tracking/no-tracking choices, query materialization timing, Include over-fetching, and client-side evaluation risks.", "For NHibernate, check lazy/eager loading tradeoffs, session usage patterns, and query batching opportunities."]
+	}
+};
+function getPromptModulesForLanguages(languages) {
+	return [...new Set(languages)].map((language) => MODULES[language]);
+}
+function getPerformanceCheckLabelsForLanguages(languages) {
+	const modules = getPromptModulesForLanguages(languages);
+	return [...new Set(modules.flatMap((module) => module.checkLabels))];
+}
+//#endregion
 //#region src/application/comment-formatter.ts
 function formatInlineComment(finding) {
 	return [
@@ -19600,11 +19667,18 @@ var PerformanceReviewService = class {
 			supportedFilesDetected: 0,
 			analyzedFiles: 0,
 			commentsPosted: 0,
+			activeLanguages: [],
+			totalRawFindings: 0,
+			totalHighValueFindings: 0,
+			analysisTrace: [],
 			skippedReason: "no_supported_languages"
 		};
 		const activeLanguages = [...new Set(supportedFiles.map((file) => file.language))];
 		const comments = [];
+		const analysisTrace = [];
 		let analyzedFiles = 0;
+		let totalRawFindings = 0;
+		let totalHighValueFindings = 0;
 		for (const file of supportedFiles) {
 			const content = await this.pullRequestClient.getFileContent({
 				owner: request.owner,
@@ -19624,11 +19698,14 @@ var PerformanceReviewService = class {
 				maxFindingsPerFile: this.options.maxFindingsPerFile
 			});
 			analyzedFiles += 1;
+			totalRawFindings += rawFindings.length;
 			const highValueFindings = filterFindings(rawFindings, {
 				minSeverity: this.options.minSeverity,
 				minConfidence: this.options.minConfidence,
 				minImpactScore: this.options.minImpactScore
 			}).slice(0, this.options.maxFindingsPerFile);
+			totalHighValueFindings += highValueFindings.length;
+			let commentsPrepared = 0;
 			for (const finding of highValueFindings) {
 				const line = resolveFindingLine({
 					finding,
@@ -19642,13 +19719,25 @@ var PerformanceReviewService = class {
 					line,
 					body: formatInlineComment(finding)
 				});
+				commentsPrepared += 1;
 			}
+			analysisTrace.push({
+				path: file.path,
+				language: file.language,
+				rawFindings: rawFindings.length,
+				highValueFindings: highValueFindings.length,
+				commentsPrepared
+			});
 		}
 		const dedupedComments = dedupeComments(comments);
 		if (dedupedComments.length === 0) return {
 			supportedFilesDetected: supportedFiles.length,
 			analyzedFiles,
 			commentsPosted: 0,
+			activeLanguages,
+			totalRawFindings,
+			totalHighValueFindings,
+			analysisTrace,
 			skippedReason: "no_high_value_findings"
 		};
 		await this.pullRequestClient.submitInlineReview({
@@ -19662,7 +19751,11 @@ var PerformanceReviewService = class {
 		return {
 			supportedFilesDetected: supportedFiles.length,
 			analyzedFiles,
-			commentsPosted: dedupedComments.length
+			commentsPosted: dedupedComments.length,
+			activeLanguages,
+			totalRawFindings,
+			totalHighValueFindings,
+			analysisTrace
 		};
 	}
 };
@@ -22181,10 +22274,10 @@ function _refine(Class, fn, _params) {
 /* @__NO_SIDE_EFFECTS__ */
 function _superRefine(fn) {
 	const ch = /* @__PURE__ */ _check((payload) => {
-		payload.addIssue = (issue$2) => {
-			if (typeof issue$2 === "string") payload.issues.push(issue(issue$2, payload.value, ch._zod.def));
+		payload.addIssue = (issue$3) => {
+			if (typeof issue$3 === "string") payload.issues.push(issue(issue$3, payload.value, ch._zod.def));
 			else {
-				const _issue = issue$2;
+				const _issue = issue$3;
 				if (_issue.fatal) _issue.continue = false;
 				_issue.code ?? (_issue.code = "custom");
 				_issue.input ?? (_issue.input = payload.value);
@@ -23166,10 +23259,10 @@ var ZodTransform = /* @__PURE__ */ $constructor("ZodTransform", (inst, def) => {
 	inst._zod.processJSONSchema = (ctx, json, params) => transformProcessor(inst, ctx, json, params);
 	inst._zod.parse = (payload, _ctx) => {
 		if (_ctx.direction === "backward") throw new $ZodEncodeError(inst.constructor.name);
-		payload.addIssue = (issue$1) => {
-			if (typeof issue$1 === "string") payload.issues.push(issue(issue$1, payload.value, def));
+		payload.addIssue = (issue$2) => {
+			if (typeof issue$2 === "string") payload.issues.push(issue(issue$2, payload.value, def));
 			else {
-				const _issue = issue$1;
+				const _issue = issue$2;
 				if (_issue.fatal) _issue.continue = false;
 				_issue.code ?? (_issue.code = "custom");
 				_issue.input ?? (_issue.input = payload.value);
@@ -23322,29 +23415,6 @@ function refine(fn, _params = {}) {
 }
 function superRefine(fn) {
 	return /* @__PURE__ */ _superRefine(fn);
-}
-//#endregion
-//#region src/application/prompt-modules.ts
-var MODULES = {
-	javascript: {
-		language: "javascript",
-		focusAreas: ["For React code, inspect render-path costs, repeated expensive computation inside render, unstable dependency arrays, and unnecessary re-renders caused by props identity churn.", "For Web Components, inspect lifecycle callback hotspots, repeated DOM querying, large synchronous layout/reflow triggers, and listener leaks in connected/disconnected flows."]
-	},
-	typescript: {
-		language: "typescript",
-		focusAreas: ["Apply the same JavaScript runtime performance checks while considering TypeScript abstractions that can hide expensive runtime loops.", "Pay special attention to repeated data shaping, serialization/deserialization in hot paths, and avoid over-allocating intermediate arrays/objects."]
-	},
-	sql: {
-		language: "sql",
-		focusAreas: ["Look for missing selective predicates, non-sargable filters, accidental cartesian products, and expensive functions inside WHERE or JOIN conditions.", "Flag N+1 style query patterns inferred from SQL changes and suggest index-aware alternatives."]
-	},
-	csharp: {
-		language: "csharp",
-		focusAreas: ["For EF, check tracking/no-tracking choices, query materialization timing, Include over-fetching, and client-side evaluation risks.", "For NHibernate, check lazy/eager loading tradeoffs, session usage patterns, and query batching opportunities."]
-	}
-};
-function getPromptModulesForLanguages(languages) {
-	return [...new Set(languages)].map((language) => MODULES[language]);
 }
 //#endregion
 //#region src/application/prompt-builder.ts
@@ -23585,6 +23655,22 @@ function parsePositiveInteger(input, fieldName) {
 	if (!Number.isFinite(parsed) || parsed < 1) throw new Error(`${fieldName} must be a positive integer.`);
 	return parsed;
 }
+function logAnalysisOverview(input) {
+	const checks = getPerformanceCheckLabelsForLanguages(input.result.activeLanguages);
+	const languages = input.result.activeLanguages.join(", ") || "none";
+	startGroup("Performance analysis overview");
+	info(`Model: ${input.model}`);
+	info(`Thresholds: severity>=${input.minSeverity}, confidence>=${input.minConfidence}, impact>=${input.minImpactScore}`);
+	info(`Languages analyzed: ${languages}`);
+	if (checks.length > 0) info(`Checks applied: ${checks.join("; ")}`);
+	info(`Supported files detected: ${input.result.supportedFilesDetected}`);
+	info(`Files analyzed: ${input.result.analyzedFiles}`);
+	info(`Raw findings generated: ${input.result.totalRawFindings}`);
+	info(`High-value findings after filtering: ${input.result.totalHighValueFindings}`);
+	info(`Comments posted: ${input.result.commentsPosted}`);
+	for (const fileSummary of input.result.analysisTrace) info(`- ${fileSummary.path} (${fileSummary.language}): raw=${fileSummary.rawFindings}, high-value=${fileSummary.highValueFindings}, comments-ready=${fileSummary.commentsPrepared}`);
+	endGroup();
+}
 async function run() {
 	const eventName = context.eventName;
 	if (eventName !== "pull_request" && eventName !== "pull_request_target") {
@@ -23627,6 +23713,11 @@ async function run() {
 			setOutput("analyzed-files", "0");
 			setOutput("comments-posted", "0");
 			setOutput("skipped-reason", "model_access_denied");
+			setOutput("analysis-overview", JSON.stringify({
+				model,
+				skippedReason: "model_access_denied",
+				message: "Model access denied for the configured token."
+			}));
 			return;
 		}
 		throw error;
@@ -23635,6 +23726,29 @@ async function run() {
 	setOutput("analyzed-files", result.analyzedFiles.toString());
 	setOutput("comments-posted", result.commentsPosted.toString());
 	setOutput("skipped-reason", result.skippedReason ?? "");
+	setOutput("analysis-overview", JSON.stringify({
+		model,
+		thresholds: {
+			minSeverity,
+			minConfidence,
+			minImpactScore
+		},
+		activeLanguages: result.activeLanguages,
+		supportedFilesDetected: result.supportedFilesDetected,
+		analyzedFiles: result.analyzedFiles,
+		totalRawFindings: result.totalRawFindings,
+		totalHighValueFindings: result.totalHighValueFindings,
+		commentsPosted: result.commentsPosted,
+		skippedReason: result.skippedReason ?? null,
+		analysisTrace: result.analysisTrace
+	}));
+	logAnalysisOverview({
+		model,
+		minSeverity,
+		minConfidence,
+		minImpactScore,
+		result
+	});
 	if (result.skippedReason === "no_supported_languages") info("No supported languages detected in this PR. Copilot analysis was skipped.");
 	else if (result.skippedReason === "no_high_value_findings") info("No high-value performance findings were detected.");
 	else info(`Posted ${result.commentsPosted} inline performance review comments.`);
