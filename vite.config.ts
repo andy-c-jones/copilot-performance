@@ -6,11 +6,16 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     sourcemap: true,
-    lib: {
-      entry: "src/main.ts",
-      formats: ["cjs"],
-      fileName: () => "index.js"
+    ssr: "src/main.ts",
+    rollupOptions: {
+      output: {
+        format: "cjs",
+        entryFileNames: "index.js"
+      }
     }
+  },
+  ssr: {
+    noExternal: true
   },
   test: {
     environment: "node",
