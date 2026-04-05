@@ -19714,12 +19714,11 @@ function shouldSkipByDirectoryRule(language, path, configuredPrefixes) {
 	});
 }
 function dedupeComments(comments) {
-	const seen = /* @__PURE__ */ new Set();
 	const deduped = [];
 	for (const comment of comments) {
-		const key = `${comment.path}:${comment.line}:${comment.body}`;
-		if (seen.has(key)) continue;
-		seen.add(key);
+		if (deduped.some((existingComment) => {
+			return existingComment.path === comment.path && existingComment.line === comment.line && existingComment.body === comment.body;
+		})) continue;
 		deduped.push(comment);
 	}
 	return deduped;
