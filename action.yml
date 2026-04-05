@@ -46,7 +46,7 @@ outputs:
   comments-posted:
     description: "Number of inline comments posted"
   skipped-reason:
-    description: "Reason no comments were posted (if applicable)"
+    description: "Reason no comments were posted (if applicable, including model_access_denied)"
 
 runs:
   using: "node20"

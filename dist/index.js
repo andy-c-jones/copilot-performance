@@ -16183,6 +16183,14 @@ function error(message, properties = {}) {
 	issueCommand("error", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
 }
 /**
+* Adds a warning issue
+* @param message warning issue message. Errors will be converted to string via toString()
+* @param properties optional properties to add to the annotation.
+*/
+function warning(message, properties = {}) {
+	issueCommand("warning", toCommandProperties(properties), message instanceof Error ? message.toString() : message);
+}
+/**
 * Writes info to log with console.log.
 * @param message info message
 */
@@ -23434,6 +23442,15 @@ var CopilotResponseSchema = object({ findings: array(object({
 	symbolName: string().min(1).optional(),
 	symbolKind: SymbolKindSchema
 })).default([]) });
+var CopilotModelAccessError = class extends Error {
+	constructor(model, status, responseBody) {
+		super(`Copilot model '${model}' is not accessible with the provided token (status ${status}).`);
+		this.model = model;
+		this.status = status;
+		this.responseBody = responseBody;
+		this.name = "CopilotModelAccessError";
+	}
+};
 function extractMessageText(response) {
 	const content = response.choices?.[0]?.message?.content;
 	if (typeof content === "string") return content;
@@ -23446,6 +23463,13 @@ function extractJsonPayload(content) {
 		return JSON.parse(rawJson);
 	} catch (error) {
 		throw new Error("Copilot response was not valid JSON.", { cause: error });
+	}
+}
+function parseCopilotErrorCode(body) {
+	try {
+		return JSON.parse(body).error?.code;
+	} catch {
+		return;
 	}
 }
 var CopilotModelsClient = class {
@@ -23474,6 +23498,7 @@ var CopilotModelsClient = class {
 		});
 		if (!response.ok) {
 			const body = await response.text();
+			if (response.status === 403 && parseCopilotErrorCode(body) === "no_access") throw new CopilotModelAccessError(this.options.model, response.status, body);
 			throw new Error(`Copilot request failed (${response.status}): ${body}`);
 		}
 		const parsed = extractJsonPayload(extractMessageText(await response.json()));
@@ -23576,7 +23601,7 @@ async function run() {
 	const minImpactScore = parsePositiveInteger(getInput("min-impact-score") || "3", "min-impact-score");
 	const maxFindingsPerFile = parsePositiveInteger(getInput("max-findings-per-file") || "3", "max-findings-per-file");
 	const reviewSummary = getInput("review-summary") || "Performance review suggestions from Copilot. Address only if the impact aligns with your workload profile.";
-	const result = await new PerformanceReviewService(new GitHubPullRequestClient(getOctokit(githubToken)), new CopilotModelsClient({
+	const service = new PerformanceReviewService(new GitHubPullRequestClient(getOctokit(githubToken)), new CopilotModelsClient({
 		token: githubToken,
 		apiUrl: copilotApiUrl,
 		model
@@ -23586,12 +23611,26 @@ async function run() {
 		minImpactScore,
 		maxFindingsPerFile,
 		reviewSummary
-	}).reviewPullRequest({
-		owner: context.repo.owner,
-		repo: context.repo.repo,
-		pullNumber: pullRequest.number,
-		headSha: pullRequest.head.sha
 	});
+	let result;
+	try {
+		result = await service.reviewPullRequest({
+			owner: context.repo.owner,
+			repo: context.repo.repo,
+			pullNumber: pullRequest.number,
+			headSha: pullRequest.head.sha
+		});
+	} catch (error) {
+		if (error instanceof CopilotModelAccessError) {
+			warning(`Skipping Copilot analysis because model access was denied for '${model}'. Ensure the workflow has 'models: read' permission or configure a model your token can access.`);
+			setOutput("supported-files-detected", "0");
+			setOutput("analyzed-files", "0");
+			setOutput("comments-posted", "0");
+			setOutput("skipped-reason", "model_access_denied");
+			return;
+		}
+		throw error;
+	}
 	setOutput("supported-files-detected", result.supportedFilesDetected.toString());
 	setOutput("analyzed-files", result.analyzedFiles.toString());
 	setOutput("comments-posted", result.commentsPosted.toString());
