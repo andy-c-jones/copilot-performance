@@ -1,5 +1,5 @@
 name: "PR Performance Reviewer"
-description: "Reviews pull requests for high-impact performance issues using Copilot/GitHub Models."
+description: "Reviews pull requests for performance issues using Copilot/GitHub Models."
 author: "andy-c-jones"
 branding:
   icon: "activity"
@@ -25,14 +25,30 @@ inputs:
     description: "Minimum confidence for posting review comments (low|medium|high)"
     required: false
     default: "high"
-  min-impact-score:
-    description: "Minimum impact score (1-5) for posting review comments"
+  impact-level:
+    description: "Minimum impact level for posting review comments (all|low|medium|high)"
     required: false
-    default: "3"
+    default: "medium"
   max-findings-per-file:
     description: "Maximum number of findings to keep per analyzed file"
     required: false
     default: "3"
+  max-patch-characters:
+    description: "Skip files when patch text exceeds this character limit"
+    required: false
+    default: "6000"
+  max-file-characters:
+    description: "Skip files when full file content exceeds this character limit"
+    required: false
+    default: "12000"
+  skip-generated-artifacts:
+    description: "When true, skips generated/bundled artifact paths such as dist/, coverage/, *.map, and *.min.*"
+    required: false
+    default: "true"
+  skip-js-ts-directories:
+    description: "Comma-separated directory prefixes to skip for JavaScript/TypeScript files (for example: dist,build,generated)"
+    required: false
+    default: ""
   review-summary:
     description: "Body text used for the submitted pull request review"
     required: false
@@ -46,7 +62,9 @@ outputs:
   comments-posted:
     description: "Number of inline comments posted"
   skipped-reason:
-    description: "Reason no comments were posted (if applicable, including model_access_denied)"
+    description: "Reason no comments were posted (including model_access_denied or all_supported_files_skipped)"
+  analysis-overview:
+    description: "JSON summary of model, checks, file-level findings, and filtering outcomes"
 
 runs:
   using: "node20"

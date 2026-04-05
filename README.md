@@ -1,6 +1,6 @@
 # PR Performance Reviewer Action
 
-A JavaScript GitHub Action for Marketplace that reviews pull requests for high-impact performance issues and posts inline comments on the PR.
+A JavaScript GitHub Action for Marketplace that reviews pull requests for performance issues and posts inline comments on the PR.
 
 ## What it does
 
@@ -13,30 +13,36 @@ A JavaScript GitHub Action for Marketplace that reviews pull requests for high-i
 - Focuses on meaningful performance issues:
   - Big-O complexity and growth impact.
   - Common anti-patterns with practical severity.
+- Uses a configurable impact threshold (`all|low|medium|high`) with a default of `medium` and up.
 - Posts inline comments on changed lines, preferring method/function/class definition lines for symbol-level findings.
 - Posts nothing when no worthwhile suggestions are found.
 
 ## Inputs
 
-| Name                    | Required | Default                                               | Description                                                        |
-| ----------------------- | -------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
-| `github-token`          | Yes      | n/a                                                   | Token used for GitHub API calls and Copilot/GitHub Models requests |
-| `model`                 | No       | `openai/gpt-4.1`                                      | Model identifier                                                   |
-| `copilot-api-url`       | No       | `https://models.github.ai/inference/chat/completions` | Chat completions endpoint                                          |
-| `min-severity`          | No       | `medium`                                              | `low\|medium\|high\|critical`                                      |
-| `min-confidence`        | No       | `high`                                                | `low\|medium\|high`                                                |
-| `min-impact-score`      | No       | `3`                                                   | Integer 1-5                                                        |
-| `max-findings-per-file` | No       | `3`                                                   | Cap findings per file                                              |
-| `review-summary`        | No       | Built-in default                                      | Review summary text                                                |
+| Name                       | Required | Default                                               | Description                                                        |
+| -------------------------- | -------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
+| `github-token`             | Yes      | n/a                                                   | Token used for GitHub API calls and Copilot/GitHub Models requests |
+| `model`                    | No       | `openai/gpt-4.1`                                      | Model identifier                                                   |
+| `copilot-api-url`          | No       | `https://models.github.ai/inference/chat/completions` | Chat completions endpoint                                          |
+| `min-severity`             | No       | `medium`                                              | `low\|medium\|high\|critical`                                      |
+| `min-confidence`           | No       | `high`                                                | `low\|medium\|high`                                                |
+| `impact-level`             | No       | `medium`                                              | `all\|low\|medium\|high`                                           |
+| `max-findings-per-file`    | No       | `3`                                                   | Cap findings per file                                              |
+| `max-patch-characters`     | No       | `6000`                                                | Skip files with very large patch text                              |
+| `max-file-characters`      | No       | `12000`                                               | Skip files with very large content snapshots                       |
+| `skip-generated-artifacts` | No       | `true`                                                | Skip `dist/`, `coverage/`, `*.map`, and `*.min.*`                  |
+| `skip-js-ts-directories`   | No       | _empty_                                               | Comma-separated JS/TS directory prefixes to skip                   |
+| `review-summary`           | No       | Built-in default                                      | Review summary text                                                |
 
 ## Outputs
 
-| Name                       | Description                         |
-| -------------------------- | ----------------------------------- |
-| `supported-files-detected` | Number of supported files in the PR |
-| `analyzed-files`           | Number of files analyzed by Copilot |
-| `comments-posted`          | Number of inline comments submitted |
-| `skipped-reason`           | Skip reason, if nothing was posted  |
+| Name                       | Description                                                   |
+| -------------------------- | ------------------------------------------------------------- |
+| `supported-files-detected` | Number of supported files in the PR                           |
+| `analyzed-files`           | Number of files analyzed by Copilot                           |
+| `comments-posted`          | Number of inline comments submitted                           |
+| `skipped-reason`           | Skip reason, if nothing was posted                            |
+| `analysis-overview`        | JSON summary of checks, per-file findings, and filter results |
 
 ## Usage
 
@@ -76,6 +82,8 @@ jobs:
       - uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          impact-level: all
+          skip-js-ts-directories: dist
 ```
 
 ## Development
@@ -89,6 +97,21 @@ npm run build
 ```
 
 If the token cannot access the configured model, the action now exits successfully with `skipped-reason=model_access_denied` and a warning message, instead of failing the workflow.
+
+Even when no comments are posted, the action logs a detailed **Performance analysis overview** section and emits `analysis-overview` so you can see what was checked and how findings were filtered.
+
+When files are skipped (for example, generated artifacts, configured JS/TS directories, or size limits), the action posts a PR comment summarizing which files were skipped and why.
+
+## GitHub Models limits
+
+GitHub Models applies request limits by model tier and plan (including tokens-per-request). See the official GitHub docs:
+
+- Rate limits and token/request limits: https://docs.github.com/en/github-models/use-github-models/prototyping-with-ai-models#rate-limits
+- Billing and production usage options: https://docs.github.com/en/billing/concepts/product-billing/github-models
+
+Limits differ by model family/tier (for example, low/high/embedding tiers and Azure OpenAI model families), so check the current GitHub table before choosing defaults.
+
+This action includes file/patch size guardrails (`max-patch-characters`, `max-file-characters`) to reduce token-limit failures on large diffs.
 
 ## Marketplace publishing note
 
