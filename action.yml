@@ -45,8 +45,8 @@ inputs:
     description: "When true, skips generated/bundled artifact paths such as dist/, coverage/, *.map, and *.min.*"
     required: false
     default: "true"
-  skip-js-ts-directories:
-    description: "Comma-separated directory prefixes to skip for JavaScript/TypeScript files (for example: dist,build,generated)"
+  skip:
+    description: "Comma-separated directory prefixes to skip for supported language files (for example: dist,build,generated)"
     required: false
     default: ""
   review-summary:

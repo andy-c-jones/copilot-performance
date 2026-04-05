@@ -37,7 +37,7 @@ const baseInput = {
   model: "openai/gpt-4.1",
   maxPatchCharacters: 6000,
   maxFileCharacters: 12000,
-  skipDirectoriesForJavaScriptAndTypeScript: ["dist"],
+  skipDirectories: ["dist"],
   skippedFiles: [
     {
       path: "src/large.ts",
@@ -130,7 +130,7 @@ describe("skipped files comment helper", () => {
 
     const createArgs = fake.createComment.mock.calls[0]?.[0];
     expect(createArgs?.body).toContain("generated/bundled artifact path");
-    expect(createArgs?.body).toContain("matched configured JS/TS skip directory rule");
+    expect(createArgs?.body).toContain("matched configured skip directory rule");
     expect(createArgs?.body).toContain("patch exceeds limit");
     expect(createArgs?.body).toContain("file content exceeds limit");
   });

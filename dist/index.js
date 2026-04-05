@@ -19478,7 +19478,7 @@ function buildAnalysisOverviewOutput(input) {
 			maxPatchCharacters: input.maxPatchCharacters,
 			maxFileCharacters: input.maxFileCharacters,
 			skipGeneratedArtifacts: input.skipGeneratedArtifacts,
-			skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
+			skipDirectories: input.skipDirectories
 		},
 		activeLanguages: input.result.activeLanguages,
 		supportedFilesDetected: input.result.supportedFilesDetected,
@@ -19499,7 +19499,7 @@ function logAnalysisOverview(input) {
 	info(`Thresholds: severity>=${input.minSeverity}, confidence>=${input.minConfidence}, impact-level>=${input.impactLevel} (score>=${input.minImpactScore})`);
 	info(`Skip limits: patch<=${input.maxPatchCharacters} chars, file<=${input.maxFileCharacters} chars`);
 	info(`Skip generated artifacts: ${input.skipGeneratedArtifacts ? "enabled" : "disabled"}`);
-	info(`JS/TS skip directories: ${input.skipDirectoriesForJavaScriptAndTypeScript.join(", ") || "none"}`);
+	info(`Skip directories: ${input.skipDirectories.join(", ") || "none"}`);
 	info(`Languages analyzed: ${languages}`);
 	if (checks.length > 0) info(`Checks applied: ${checks.join("; ")}`);
 	info(`Supported files detected: ${input.result.supportedFilesDetected}`);
@@ -19706,8 +19706,7 @@ function isGeneratedArtifactPath(path) {
 function normalizeDirectoryPrefix(prefix) {
 	return prefix.trim().replace(/^\.?\//, "").replace(/\/+$/, "");
 }
-function shouldSkipByDirectoryRule(language, path, configuredPrefixes) {
-	if (language !== "javascript" && language !== "typescript") return false;
+function shouldSkipByDirectoryRule(path, configuredPrefixes) {
 	const normalizedPath = path.replace(/^\.?\//, "");
 	return configuredPrefixes.map((prefix) => normalizeDirectoryPrefix(prefix)).filter((prefix) => prefix.length > 0).some((prefix) => {
 		return normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`);
@@ -19854,7 +19853,7 @@ var PerformanceReviewService = class {
 			reason: "generated_artifact",
 			patchCharacters: file.patch?.length
 		};
-		if (shouldSkipByDirectoryRule(file.language, file.path, this.options.skipDirectoriesForJavaScriptAndTypeScript)) return {
+		if (shouldSkipByDirectoryRule(file.path, this.options.skipDirectories)) return {
 			path: file.path,
 			language: file.language,
 			reason: "directory_rule",
@@ -19914,7 +19913,7 @@ var SKIPPED_COMMENT_MARKER = "<!-- copilot-performance-skipped-files -->";
 function describeSkippedFileReason(skippedFile) {
 	switch (skippedFile.reason) {
 		case "generated_artifact": return "generated/bundled artifact path";
-		case "directory_rule": return "matched configured JS/TS skip directory rule";
+		case "directory_rule": return "matched configured skip directory rule";
 		case "patch_too_large": return `patch exceeds limit (${skippedFile.patchCharacters ?? 0} chars)`;
 		case "file_too_large": return `file content exceeds limit (${skippedFile.fileCharacters ?? 0} chars)`;
 		default: return "unknown skip reason";
@@ -19932,7 +19931,7 @@ async function upsertSkippedFilesComment(input) {
 		"",
 		`Configured model: \`${input.model}\``,
 		`Skip limits: patch <= ${input.maxPatchCharacters} chars, file <= ${input.maxFileCharacters} chars`,
-		`JS/TS skip directories: ${input.skipDirectoriesForJavaScriptAndTypeScript.join(", ") || "none"}`,
+		`Skip directories: ${input.skipDirectories.join(", ") || "none"}`,
 		"",
 		skippedRows
 	].join("\n");
@@ -23932,7 +23931,7 @@ function parseInputs() {
 		maxPatchCharacters: parsePositiveInteger(getInput("max-patch-characters") || "6000", "max-patch-characters"),
 		maxFileCharacters: parsePositiveInteger(getInput("max-file-characters") || "12000", "max-file-characters"),
 		skipGeneratedArtifacts: parseBooleanInput(getInput("skip-generated-artifacts") || "true", "skip-generated-artifacts"),
-		skipDirectoriesForJavaScriptAndTypeScript: parseCsvInput(getInput("skip-js-ts-directories") || ""),
+		skipDirectories: parseCsvInput(getInput("skip") || ""),
 		reviewSummary: getInput("review-summary") || "Performance review suggestions from Copilot. Address only if the impact aligns with your workload profile."
 	};
 }
@@ -23949,7 +23948,7 @@ function setModelAccessDeniedOutputs(input) {
 		impactLevel: input.impactLevel,
 		maxPatchCharacters: input.maxPatchCharacters,
 		maxFileCharacters: input.maxFileCharacters,
-		skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
+		skipDirectories: input.skipDirectories
 	}));
 }
 function setCopilotUnavailableOutputs(input, error) {
@@ -23969,7 +23968,7 @@ function setCopilotUnavailableOutputs(input, error) {
 		impactLevel: input.impactLevel,
 		maxPatchCharacters: input.maxPatchCharacters,
 		maxFileCharacters: input.maxFileCharacters,
-		skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
+		skipDirectories: input.skipDirectories
 	}));
 }
 async function run() {
@@ -23994,7 +23993,7 @@ async function run() {
 		maxPatchCharacters: inputs.maxPatchCharacters,
 		maxFileCharacters: inputs.maxFileCharacters,
 		skipGeneratedArtifacts: inputs.skipGeneratedArtifacts,
-		skipDirectoriesForJavaScriptAndTypeScript: inputs.skipDirectoriesForJavaScriptAndTypeScript,
+		skipDirectories: inputs.skipDirectories,
 		reviewSummary: inputs.reviewSummary
 	});
 	let result;
@@ -24029,7 +24028,7 @@ async function run() {
 		maxPatchCharacters: inputs.maxPatchCharacters,
 		maxFileCharacters: inputs.maxFileCharacters,
 		skipGeneratedArtifacts: inputs.skipGeneratedArtifacts,
-		skipDirectoriesForJavaScriptAndTypeScript: inputs.skipDirectoriesForJavaScriptAndTypeScript,
+		skipDirectories: inputs.skipDirectories,
 		result
 	};
 	setOutput("analysis-overview", JSON.stringify(buildAnalysisOverviewOutput(analysisOverviewContext)));
@@ -24042,7 +24041,7 @@ async function run() {
 		model: inputs.model,
 		maxPatchCharacters: inputs.maxPatchCharacters,
 		maxFileCharacters: inputs.maxFileCharacters,
-		skipDirectoriesForJavaScriptAndTypeScript: inputs.skipDirectoriesForJavaScriptAndTypeScript,
+		skipDirectories: inputs.skipDirectories,
 		skippedFiles: result.skippedFiles
 	});
 	if (result.skippedReason === "no_supported_languages") info("No supported languages detected in this PR. Copilot analysis was skipped.");

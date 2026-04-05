@@ -31,7 +31,7 @@ A JavaScript GitHub Action for Marketplace that reviews pull requests for perfor
 | `max-patch-characters`     | No       | `6000`                                                | Skip files with very large patch text                              |
 | `max-file-characters`      | No       | `12000`                                               | Skip files with very large content snapshots                       |
 | `skip-generated-artifacts` | No       | `true`                                                | Skip `dist/`, `coverage/`, `*.map`, and `*.min.*`                  |
-| `skip-js-ts-directories`   | No       | _empty_                                               | Comma-separated JS/TS directory prefixes to skip                   |
+| `skip`                     | No       | _empty_                                               | Comma-separated directory prefixes to skip                         |
 | `review-summary`           | No       | Built-in default                                      | Review summary text                                                |
 
 ## Outputs
@@ -83,7 +83,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           impact-level: all
-          skip-js-ts-directories: dist
+          skip: dist
 ```
 
 ## Development
@@ -102,7 +102,7 @@ If Copilot is rate limited or temporarily unavailable, the action also exits suc
 
 Even when no comments are posted, the action logs a detailed **Performance analysis overview** section and emits `analysis-overview` so you can see what was checked and how findings were filtered.
 
-When files are skipped (for example, generated artifacts or size limits), the action posts a PR comment summarizing which files were skipped and why. Directory-rule-only skips (`skip-js-ts-directories`) do not produce a PR comment by themselves, but are included when other skip reasons are present.
+When files are skipped (for example, generated artifacts or size limits), the action posts a PR comment summarizing which files were skipped and why. Directory-rule-only skips (`skip`) do not produce a PR comment by themselves, but are included when other skip reasons are present.
 
 ## GitHub Models limits
 

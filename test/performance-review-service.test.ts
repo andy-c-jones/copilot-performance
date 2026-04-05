@@ -65,7 +65,7 @@ const baseOptions = {
   maxPatchCharacters: 6_000,
   maxFileCharacters: 12_000,
   skipGeneratedArtifacts: true,
-  skipDirectoriesForJavaScriptAndTypeScript: [],
+  skipDirectories: [],
   reviewSummary: "summary"
 };
 
@@ -260,14 +260,14 @@ describe("performance review service", () => {
     expect(analyzer.analyzeFile).not.toHaveBeenCalled();
   });
 
-  it("skips configured directories for JavaScript/TypeScript only", async () => {
+  it("skips configured directories across supported languages", async () => {
     const repoClient = new FakePullRequestClient(
       [
         { path: "dist/skip-me.ts", status: "modified", additions: 1, deletions: 0, patch: "+x" },
-        { path: "dist/keep.sql", status: "modified", additions: 1, deletions: 0, patch: "+x" }
+        { path: "dist/skip-me.sql", status: "modified", additions: 1, deletions: 0, patch: "+x" }
       ],
       {
-        "dist/keep.sql": "select 1;"
+        "dist/skip-me.sql": "select 1;"
       }
     );
     const analyzer: PerformanceAnalyzer = {
@@ -277,7 +277,7 @@ describe("performance review service", () => {
     const service = new PerformanceReviewService(repoClient, analyzer, {
       ...baseOptions,
       skipGeneratedArtifacts: false,
-      skipDirectoriesForJavaScriptAndTypeScript: ["dist"]
+      skipDirectories: ["dist"]
     });
 
     const result = await service.reviewPullRequest({
@@ -287,11 +287,13 @@ describe("performance review service", () => {
       headSha: "abc"
     });
 
-    expect(result.skippedReason).toBe("no_high_value_findings");
-    expect(result.skippedFiles).toHaveLength(1);
+    expect(result.skippedReason).toBe("all_supported_files_skipped");
+    expect(result.skippedFiles).toHaveLength(2);
     expect(result.skippedFiles[0]?.path).toBe("dist/skip-me.ts");
     expect(result.skippedFiles[0]?.reason).toBe("directory_rule");
-    expect(analyzer.analyzeFile).toHaveBeenCalledTimes(1);
+    expect(result.skippedFiles[1]?.path).toBe("dist/skip-me.sql");
+    expect(result.skippedFiles[1]?.reason).toBe("directory_rule");
+    expect(analyzer.analyzeFile).not.toHaveBeenCalled();
   });
 
   it("skips file when content exceeds max file characters", async () => {

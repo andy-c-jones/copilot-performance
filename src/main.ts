@@ -38,7 +38,7 @@ interface ParsedActionInputs {
   maxPatchCharacters: number;
   maxFileCharacters: number;
   skipGeneratedArtifacts: boolean;
-  skipDirectoriesForJavaScriptAndTypeScript: string[];
+  skipDirectories: string[];
   reviewSummary: string;
 }
 
@@ -108,9 +108,7 @@ function parseInputs(): ParsedActionInputs {
       core.getInput("skip-generated-artifacts") || "true",
       "skip-generated-artifacts"
     ),
-    skipDirectoriesForJavaScriptAndTypeScript: parseCsvInput(
-      core.getInput("skip-js-ts-directories") || ""
-    ),
+    skipDirectories: parseCsvInput(core.getInput("skip") || ""),
     reviewSummary:
       core.getInput("review-summary") ||
       "Performance review suggestions from Copilot. Address only if the impact aligns with your workload profile."
@@ -134,7 +132,7 @@ function setModelAccessDeniedOutputs(input: ParsedActionInputs): void {
       impactLevel: input.impactLevel,
       maxPatchCharacters: input.maxPatchCharacters,
       maxFileCharacters: input.maxFileCharacters,
-      skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
+      skipDirectories: input.skipDirectories
     })
   );
 }
@@ -163,7 +161,7 @@ function setCopilotUnavailableOutputs(
       impactLevel: input.impactLevel,
       maxPatchCharacters: input.maxPatchCharacters,
       maxFileCharacters: input.maxFileCharacters,
-      skipDirectoriesForJavaScriptAndTypeScript: input.skipDirectoriesForJavaScriptAndTypeScript
+      skipDirectories: input.skipDirectories
     })
   );
 }
@@ -196,7 +194,7 @@ async function run(): Promise<void> {
     maxPatchCharacters: inputs.maxPatchCharacters,
     maxFileCharacters: inputs.maxFileCharacters,
     skipGeneratedArtifacts: inputs.skipGeneratedArtifacts,
-    skipDirectoriesForJavaScriptAndTypeScript: inputs.skipDirectoriesForJavaScriptAndTypeScript,
+    skipDirectories: inputs.skipDirectories,
     reviewSummary: inputs.reviewSummary
   });
 
@@ -234,7 +232,7 @@ async function run(): Promise<void> {
     maxPatchCharacters: inputs.maxPatchCharacters,
     maxFileCharacters: inputs.maxFileCharacters,
     skipGeneratedArtifacts: inputs.skipGeneratedArtifacts,
-    skipDirectoriesForJavaScriptAndTypeScript: inputs.skipDirectoriesForJavaScriptAndTypeScript,
+    skipDirectories: inputs.skipDirectories,
     result
   };
   core.setOutput(
@@ -251,7 +249,7 @@ async function run(): Promise<void> {
     model: inputs.model,
     maxPatchCharacters: inputs.maxPatchCharacters,
     maxFileCharacters: inputs.maxFileCharacters,
-    skipDirectoriesForJavaScriptAndTypeScript: inputs.skipDirectoriesForJavaScriptAndTypeScript,
+    skipDirectories: inputs.skipDirectories,
     skippedFiles: result.skippedFiles
   });
 

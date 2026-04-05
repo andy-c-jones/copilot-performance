@@ -47,7 +47,7 @@ describe("analysis overview helpers", () => {
       maxPatchCharacters: 6000,
       maxFileCharacters: 12000,
       skipGeneratedArtifacts: true,
-      skipDirectoriesForJavaScriptAndTypeScript: ["dist"],
+      skipDirectories: ["dist"],
       result: sampleResult
     });
 
@@ -61,7 +61,7 @@ describe("analysis overview helpers", () => {
         maxPatchCharacters: 6000,
         maxFileCharacters: 12000,
         skipGeneratedArtifacts: true,
-        skipDirectoriesForJavaScriptAndTypeScript: ["dist"]
+        skipDirectories: ["dist"]
       },
       skippedFiles: [{ path: "dist/index.js" }]
     });
@@ -81,12 +81,12 @@ describe("analysis overview helpers", () => {
       maxPatchCharacters: 6000,
       maxFileCharacters: 12000,
       skipGeneratedArtifacts: true,
-      skipDirectoriesForJavaScriptAndTypeScript: ["dist"],
+      skipDirectories: ["dist"],
       result: sampleResult
     });
 
     expect(infoSpy).toHaveBeenCalledWith("Model: openai/gpt-4.1");
-    expect(infoSpy).toHaveBeenCalledWith("JS/TS skip directories: dist");
+    expect(infoSpy).toHaveBeenCalledWith("Skip directories: dist");
     expect(infoSpy).toHaveBeenCalledWith("Files skipped before model call: 1");
   });
 
@@ -104,7 +104,7 @@ describe("analysis overview helpers", () => {
       maxPatchCharacters: 6000,
       maxFileCharacters: 12000,
       skipGeneratedArtifacts: false,
-      skipDirectoriesForJavaScriptAndTypeScript: [],
+      skipDirectories: [],
       result: {
         ...sampleResult,
         activeLanguages: [],
