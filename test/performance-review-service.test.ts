@@ -57,6 +57,17 @@ const sampleFinding: PerformanceFinding = {
   symbolKind: "function"
 };
 
+const baseOptions = {
+  minSeverity: "medium" as const,
+  minConfidence: "high" as const,
+  minImpactScore: 3,
+  maxFindingsPerFile: 3,
+  maxPatchCharacters: 6_000,
+  maxFileCharacters: 12_000,
+  skipGeneratedArtifacts: true,
+  reviewSummary: "summary"
+};
+
 describe("performance review service", () => {
   it("skips Copilot review submission when no supported language files exist", async () => {
     const repoClient = new FakePullRequestClient(
@@ -67,13 +78,7 @@ describe("performance review service", () => {
       analyzeFile: vi.fn(async () => [])
     };
 
-    const service = new PerformanceReviewService(repoClient, analyzer, {
-      minSeverity: "medium",
-      minConfidence: "high",
-      minImpactScore: 3,
-      maxFindingsPerFile: 3,
-      reviewSummary: "summary"
-    });
+    const service = new PerformanceReviewService(repoClient, analyzer, baseOptions);
 
     const result = await service.reviewPullRequest({
       owner: "o",
@@ -86,6 +91,7 @@ describe("performance review service", () => {
     expect(result.activeLanguages).toEqual([]);
     expect(result.totalRawFindings).toBe(0);
     expect(result.analysisTrace).toEqual([]);
+    expect(result.skippedFiles).toEqual([]);
     expect(repoClient.submittedReviews).toHaveLength(0);
     expect(analyzer.analyzeFile).not.toHaveBeenCalled();
   });
@@ -106,13 +112,7 @@ describe("performance review service", () => {
       analyzeFile: vi.fn(async () => [sampleFinding])
     };
 
-    const service = new PerformanceReviewService(repoClient, analyzer, {
-      minSeverity: "medium",
-      minConfidence: "high",
-      minImpactScore: 3,
-      maxFindingsPerFile: 3,
-      reviewSummary: "summary"
-    });
+    const service = new PerformanceReviewService(repoClient, analyzer, baseOptions);
 
     const result = await service.reviewPullRequest({
       owner: "o",
@@ -127,6 +127,7 @@ describe("performance review service", () => {
     expect(result.totalHighValueFindings).toBe(1);
     expect(result.activeLanguages).toEqual(["typescript"]);
     expect(result.analysisTrace[0]?.path).toBe("src/a.ts");
+    expect(result.skippedFiles).toEqual([]);
     expect(repoClient.submittedReviews).toHaveLength(1);
     expect(firstReview?.comments[0]?.line).toBe(1);
   });
@@ -148,13 +149,7 @@ describe("performance review service", () => {
       analyzeFile: vi.fn(async () => [{ ...sampleFinding, severity: "low" as const }])
     };
 
-    const service = new PerformanceReviewService(repoClient, analyzer, {
-      minSeverity: "medium",
-      minConfidence: "high",
-      minImpactScore: 3,
-      maxFindingsPerFile: 3,
-      reviewSummary: "summary"
-    });
+    const service = new PerformanceReviewService(repoClient, analyzer, baseOptions);
 
     const result = await service.reviewPullRequest({
       owner: "o",
@@ -184,13 +179,7 @@ describe("performance review service", () => {
       analyzeFile: vi.fn(async () => [sampleFinding, sampleFinding])
     };
 
-    const service = new PerformanceReviewService(repoClient, analyzer, {
-      minSeverity: "medium",
-      minConfidence: "high",
-      minImpactScore: 3,
-      maxFindingsPerFile: 3,
-      reviewSummary: "summary"
-    });
+    const service = new PerformanceReviewService(repoClient, analyzer, baseOptions);
 
     const result = await service.reviewPullRequest({
       owner: "o",
@@ -220,13 +209,7 @@ describe("performance review service", () => {
       ])
     };
 
-    const service = new PerformanceReviewService(repoClient, analyzer, {
-      minSeverity: "medium",
-      minConfidence: "high",
-      minImpactScore: 3,
-      maxFindingsPerFile: 3,
-      reviewSummary: "summary"
-    });
+    const service = new PerformanceReviewService(repoClient, analyzer, baseOptions);
 
     const result = await service.reviewPullRequest({
       owner: "o",
@@ -237,5 +220,42 @@ describe("performance review service", () => {
 
     expect(result.skippedReason).toBe("no_high_value_findings");
     expect(repoClient.submittedReviews).toHaveLength(0);
+  });
+
+  it("skips generated and oversized files before model calls", async () => {
+    const repoClient = new FakePullRequestClient(
+      [
+        { path: "dist/index.js", status: "modified", additions: 10, deletions: 0, patch: "+x" },
+        {
+          path: "src/huge.ts",
+          status: "modified",
+          additions: 10,
+          deletions: 0,
+          patch: `+${"a".repeat(100)}`
+        }
+      ],
+      { "src/huge.ts": "const x = 1;" }
+    );
+    const analyzer: PerformanceAnalyzer = {
+      analyzeFile: vi.fn(async () => [sampleFinding])
+    };
+
+    const service = new PerformanceReviewService(repoClient, analyzer, {
+      ...baseOptions,
+      maxPatchCharacters: 50
+    });
+
+    const result = await service.reviewPullRequest({
+      owner: "o",
+      repo: "r",
+      pullNumber: 1,
+      headSha: "abc"
+    });
+
+    expect(result.skippedReason).toBe("all_supported_files_skipped");
+    expect(result.skippedFiles).toHaveLength(2);
+    expect(result.skippedFiles[0]?.reason).toBe("generated_artifact");
+    expect(result.skippedFiles[1]?.reason).toBe("patch_too_large");
+    expect(analyzer.analyzeFile).not.toHaveBeenCalled();
   });
 });

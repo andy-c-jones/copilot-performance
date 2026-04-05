@@ -12,6 +12,7 @@ import { GitHubPullRequestClient } from "./infrastructure/github-pull-request-cl
 
 const DEFAULT_MODEL = "openai/gpt-4.1";
 const DEFAULT_COPILOT_API_URL = "https://models.github.ai/inference/chat/completions";
+const SKIPPED_COMMENT_MARKER = "<!-- copilot-performance-skipped-files -->";
 
 function parseSeverity(value: string): Severity {
   if ((SEVERITY_LEVELS as readonly string[]).includes(value)) {
@@ -35,11 +36,100 @@ function parsePositiveInteger(input: string, fieldName: string): number {
   return parsed;
 }
 
+function parseBooleanInput(input: string, fieldName: string): boolean {
+  const normalized = input.toLowerCase();
+  if (normalized === "true") {
+    return true;
+  }
+  if (normalized === "false") {
+    return false;
+  }
+  throw new Error(`${fieldName} must be 'true' or 'false'.`);
+}
+
+function describeSkippedFileReason(skippedFile: {
+  reason: string;
+  patchCharacters?: number;
+  fileCharacters?: number;
+}): string {
+  switch (skippedFile.reason) {
+    case "generated_artifact":
+      return "generated/bundled artifact path";
+    case "patch_too_large":
+      return `patch exceeds limit (${skippedFile.patchCharacters ?? 0} chars)`;
+    case "file_too_large":
+      return `file content exceeds limit (${skippedFile.fileCharacters ?? 0} chars)`;
+    default:
+      return "unknown skip reason";
+  }
+}
+
+async function upsertSkippedFilesComment(input: {
+  octokit: ReturnType<typeof github.getOctokit>;
+  owner: string;
+  repo: string;
+  pullNumber: number;
+  model: string;
+  maxPatchCharacters: number;
+  maxFileCharacters: number;
+  skippedFiles: Awaited<ReturnType<PerformanceReviewService["reviewPullRequest"]>>["skippedFiles"];
+}): Promise<void> {
+  if (input.skippedFiles.length === 0) {
+    return;
+  }
+
+  const skippedRows = input.skippedFiles
+    .map((file) => {
+      return `- \`${file.path}\` (${file.language}): ${describeSkippedFileReason(file)}`;
+    })
+    .join("\n");
+
+  const body = [
+    SKIPPED_COMMENT_MARKER,
+    "⚠️ Some files were skipped during performance review",
+    "",
+    `Configured model: \`${input.model}\``,
+    `Skip limits: patch <= ${input.maxPatchCharacters} chars, file <= ${input.maxFileCharacters} chars`,
+    "",
+    skippedRows
+  ].join("\n");
+
+  const existingComments = await input.octokit.paginate(input.octokit.rest.issues.listComments, {
+    owner: input.owner,
+    repo: input.repo,
+    issue_number: input.pullNumber,
+    per_page: 100
+  });
+
+  const existingComment = existingComments.find((comment) => {
+    return typeof comment.body === "string" && comment.body.includes(SKIPPED_COMMENT_MARKER);
+  });
+
+  if (existingComment) {
+    await input.octokit.rest.issues.updateComment({
+      owner: input.owner,
+      repo: input.repo,
+      comment_id: existingComment.id,
+      body
+    });
+    return;
+  }
+
+  await input.octokit.rest.issues.createComment({
+    owner: input.owner,
+    repo: input.repo,
+    issue_number: input.pullNumber,
+    body
+  });
+}
+
 function logAnalysisOverview(input: {
   model: string;
   minSeverity: Severity;
   minConfidence: Confidence;
   minImpactScore: number;
+  maxPatchCharacters: number;
+  maxFileCharacters: number;
   result: Awaited<ReturnType<PerformanceReviewService["reviewPullRequest"]>>;
 }): void {
   const checks = getPerformanceCheckLabelsForLanguages(input.result.activeLanguages);
@@ -50,6 +140,9 @@ function logAnalysisOverview(input: {
   core.info(
     `Thresholds: severity>=${input.minSeverity}, confidence>=${input.minConfidence}, impact>=${input.minImpactScore}`
   );
+  core.info(
+    `Skip limits: patch<=${input.maxPatchCharacters} chars, file<=${input.maxFileCharacters} chars`
+  );
   core.info(`Languages analyzed: ${languages}`);
   if (checks.length > 0) {
     core.info(`Checks applied: ${checks.join("; ")}`);
@@ -59,8 +152,15 @@ function logAnalysisOverview(input: {
   core.info(`Raw findings generated: ${input.result.totalRawFindings}`);
   core.info(`High-value findings after filtering: ${input.result.totalHighValueFindings}`);
   core.info(`Comments posted: ${input.result.commentsPosted}`);
+  core.info(`Files skipped before model call: ${input.result.skippedFiles.length}`);
 
   for (const fileSummary of input.result.analysisTrace) {
+    if (fileSummary.skippedReason) {
+      core.info(
+        `- ${fileSummary.path} (${fileSummary.language}): skipped=${fileSummary.skippedReason}`
+      );
+      continue;
+    }
     core.info(
       `- ${fileSummary.path} (${fileSummary.language}): raw=${fileSummary.rawFindings}, high-value=${fileSummary.highValueFindings}, comments-ready=${fileSummary.commentsPrepared}`
     );
@@ -93,6 +193,18 @@ async function run(): Promise<void> {
     core.getInput("max-findings-per-file") || "3",
     "max-findings-per-file"
   );
+  const maxPatchCharacters = parsePositiveInteger(
+    core.getInput("max-patch-characters") || "6000",
+    "max-patch-characters"
+  );
+  const maxFileCharacters = parsePositiveInteger(
+    core.getInput("max-file-characters") || "12000",
+    "max-file-characters"
+  );
+  const skipGeneratedArtifacts = parseBooleanInput(
+    core.getInput("skip-generated-artifacts") || "true",
+    "skip-generated-artifacts"
+  );
   const reviewSummary =
     core.getInput("review-summary") ||
     "Performance review suggestions from Copilot. Address only if the impact aligns with your workload profile.";
@@ -109,6 +221,9 @@ async function run(): Promise<void> {
     minConfidence,
     minImpactScore,
     maxFindingsPerFile,
+    maxPatchCharacters,
+    maxFileCharacters,
+    skipGeneratedArtifacts,
     reviewSummary
   });
 
@@ -134,7 +249,9 @@ async function run(): Promise<void> {
         JSON.stringify({
           model,
           skippedReason: "model_access_denied",
-          message: "Model access denied for the configured token."
+          message: "Model access denied for the configured token.",
+          maxPatchCharacters,
+          maxFileCharacters
         })
       );
       return;
@@ -155,12 +272,18 @@ async function run(): Promise<void> {
         minConfidence,
         minImpactScore
       },
+      limits: {
+        maxPatchCharacters,
+        maxFileCharacters,
+        skipGeneratedArtifacts
+      },
       activeLanguages: result.activeLanguages,
       supportedFilesDetected: result.supportedFilesDetected,
       analyzedFiles: result.analyzedFiles,
       totalRawFindings: result.totalRawFindings,
       totalHighValueFindings: result.totalHighValueFindings,
       commentsPosted: result.commentsPosted,
+      skippedFiles: result.skippedFiles,
       skippedReason: result.skippedReason ?? null,
       analysisTrace: result.analysisTrace
     })
@@ -171,11 +294,26 @@ async function run(): Promise<void> {
     minSeverity,
     minConfidence,
     minImpactScore,
+    maxPatchCharacters,
+    maxFileCharacters,
     result
+  });
+
+  await upsertSkippedFilesComment({
+    octokit,
+    owner: github.context.repo.owner,
+    repo: github.context.repo.repo,
+    pullNumber: pullRequest.number,
+    model,
+    maxPatchCharacters,
+    maxFileCharacters,
+    skippedFiles: result.skippedFiles
   });
 
   if (result.skippedReason === "no_supported_languages") {
     core.info("No supported languages detected in this PR. Copilot analysis was skipped.");
+  } else if (result.skippedReason === "all_supported_files_skipped") {
+    core.info("All supported files were skipped before model analysis due to skip rules.");
   } else if (result.skippedReason === "no_high_value_findings") {
     core.info("No high-value performance findings were detected.");
   } else {

@@ -10,6 +10,9 @@ export interface PerformanceReviewServiceOptions {
   minConfidence: Confidence;
   minImpactScore: number;
   maxFindingsPerFile: number;
+  maxPatchCharacters: number;
+  maxFileCharacters: number;
+  skipGeneratedArtifacts: boolean;
   reviewSummary: string;
 }
 
@@ -28,7 +31,11 @@ export interface ReviewPullRequestResult {
   totalRawFindings: number;
   totalHighValueFindings: number;
   analysisTrace: FileAnalysisTrace[];
-  skippedReason?: "no_supported_languages" | "no_high_value_findings";
+  skippedFiles: SkippedFileTrace[];
+  skippedReason?:
+    | "no_supported_languages"
+    | "no_high_value_findings"
+    | "all_supported_files_skipped";
 }
 
 export interface FileAnalysisTrace {
@@ -37,6 +44,21 @@ export interface FileAnalysisTrace {
   rawFindings: number;
   highValueFindings: number;
   commentsPrepared: number;
+  skippedReason?: SkippedFileTrace["reason"];
+}
+
+export interface SkippedFileTrace {
+  path: string;
+  language: SupportedLanguage;
+  reason: "generated_artifact" | "patch_too_large" | "file_too_large";
+  patchCharacters?: number;
+  fileCharacters?: number;
+}
+
+const GENERATED_ARTIFACT_PATTERNS = [/^dist\//i, /^coverage\//i, /\.map$/i, /\.min\.[^/]+$/i];
+
+function isGeneratedArtifactPath(path: string): boolean {
+  return GENERATED_ARTIFACT_PATTERNS.some((pattern) => pattern.test(path));
 }
 
 function dedupeComments(comments: InlineReviewComment[]): InlineReviewComment[] {
@@ -85,6 +107,7 @@ export class PerformanceReviewService {
         totalRawFindings: 0,
         totalHighValueFindings: 0,
         analysisTrace: [],
+        skippedFiles: [],
         skippedReason: "no_supported_languages"
       };
     }
@@ -92,17 +115,77 @@ export class PerformanceReviewService {
     const activeLanguages = [...new Set(supportedFiles.map((file) => file.language))];
     const comments: InlineReviewComment[] = [];
     const analysisTrace: FileAnalysisTrace[] = [];
+    const skippedFiles: SkippedFileTrace[] = [];
     let analyzedFiles = 0;
     let totalRawFindings = 0;
     let totalHighValueFindings = 0;
 
     for (const file of supportedFiles) {
+      if (this.options.skipGeneratedArtifacts && isGeneratedArtifactPath(file.path)) {
+        const skippedFile: SkippedFileTrace = {
+          path: file.path,
+          language: file.language,
+          reason: "generated_artifact",
+          patchCharacters: file.patch?.length
+        };
+        skippedFiles.push(skippedFile);
+        analysisTrace.push({
+          path: file.path,
+          language: file.language,
+          rawFindings: 0,
+          highValueFindings: 0,
+          commentsPrepared: 0,
+          skippedReason: skippedFile.reason
+        });
+        continue;
+      }
+
+      const patchCharacters = file.patch?.length ?? 0;
+      if (patchCharacters > this.options.maxPatchCharacters) {
+        const skippedFile: SkippedFileTrace = {
+          path: file.path,
+          language: file.language,
+          reason: "patch_too_large",
+          patchCharacters
+        };
+        skippedFiles.push(skippedFile);
+        analysisTrace.push({
+          path: file.path,
+          language: file.language,
+          rawFindings: 0,
+          highValueFindings: 0,
+          commentsPrepared: 0,
+          skippedReason: skippedFile.reason
+        });
+        continue;
+      }
+
       const content = await this.pullRequestClient.getFileContent({
         owner: request.owner,
         repo: request.repo,
         path: file.path,
         ref: request.headSha
       });
+
+      const fileCharacters = content.length;
+      if (fileCharacters > this.options.maxFileCharacters) {
+        const skippedFile: SkippedFileTrace = {
+          path: file.path,
+          language: file.language,
+          reason: "file_too_large",
+          fileCharacters
+        };
+        skippedFiles.push(skippedFile);
+        analysisTrace.push({
+          path: file.path,
+          language: file.language,
+          rawFindings: 0,
+          highValueFindings: 0,
+          commentsPrepared: 0,
+          skippedReason: skippedFile.reason
+        });
+        continue;
+      }
 
       const rawFindings = await this.analyzer.analyzeFile({
         owner: request.owner,
@@ -167,7 +250,9 @@ export class PerformanceReviewService {
         totalRawFindings,
         totalHighValueFindings,
         analysisTrace,
-        skippedReason: "no_high_value_findings"
+        skippedFiles,
+        skippedReason:
+          analyzedFiles === 0 ? "all_supported_files_skipped" : "no_high_value_findings"
       };
     }
 
@@ -187,7 +272,8 @@ export class PerformanceReviewService {
       activeLanguages,
       totalRawFindings,
       totalHighValueFindings,
-      analysisTrace
+      analysisTrace,
+      skippedFiles
     };
   }
 }

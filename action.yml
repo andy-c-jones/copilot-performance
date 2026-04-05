@@ -33,6 +33,18 @@ inputs:
     description: "Maximum number of findings to keep per analyzed file"
     required: false
     default: "3"
+  max-patch-characters:
+    description: "Skip files when patch text exceeds this character limit"
+    required: false
+    default: "6000"
+  max-file-characters:
+    description: "Skip files when full file content exceeds this character limit"
+    required: false
+    default: "12000"
+  skip-generated-artifacts:
+    description: "When true, skips generated/bundled artifact paths such as dist/, coverage/, *.map, and *.min.*"
+    required: false
+    default: "true"
   review-summary:
     description: "Body text used for the submitted pull request review"
     required: false
@@ -46,7 +58,7 @@ outputs:
   comments-posted:
     description: "Number of inline comments posted"
   skipped-reason:
-    description: "Reason no comments were posted (if applicable, including model_access_denied)"
+    description: "Reason no comments were posted (including model_access_denied or all_supported_files_skipped)"
   analysis-overview:
     description: "JSON summary of model, checks, file-level findings, and filtering outcomes"
 

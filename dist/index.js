@@ -19640,6 +19640,15 @@ function classifySupportedFiles(files) {
 }
 //#endregion
 //#region src/application/performance-review-service.ts
+var GENERATED_ARTIFACT_PATTERNS = [
+	/^dist\//i,
+	/^coverage\//i,
+	/\.map$/i,
+	/\.min\.[^/]+$/i
+];
+function isGeneratedArtifactPath(path) {
+	return GENERATED_ARTIFACT_PATTERNS.some((pattern) => pattern.test(path));
+}
 function dedupeComments(comments) {
 	const seen = /* @__PURE__ */ new Set();
 	const deduped = [];
@@ -19671,21 +19680,79 @@ var PerformanceReviewService = class {
 			totalRawFindings: 0,
 			totalHighValueFindings: 0,
 			analysisTrace: [],
+			skippedFiles: [],
 			skippedReason: "no_supported_languages"
 		};
 		const activeLanguages = [...new Set(supportedFiles.map((file) => file.language))];
 		const comments = [];
 		const analysisTrace = [];
+		const skippedFiles = [];
 		let analyzedFiles = 0;
 		let totalRawFindings = 0;
 		let totalHighValueFindings = 0;
 		for (const file of supportedFiles) {
+			if (this.options.skipGeneratedArtifacts && isGeneratedArtifactPath(file.path)) {
+				const skippedFile = {
+					path: file.path,
+					language: file.language,
+					reason: "generated_artifact",
+					patchCharacters: file.patch?.length
+				};
+				skippedFiles.push(skippedFile);
+				analysisTrace.push({
+					path: file.path,
+					language: file.language,
+					rawFindings: 0,
+					highValueFindings: 0,
+					commentsPrepared: 0,
+					skippedReason: skippedFile.reason
+				});
+				continue;
+			}
+			const patchCharacters = file.patch?.length ?? 0;
+			if (patchCharacters > this.options.maxPatchCharacters) {
+				const skippedFile = {
+					path: file.path,
+					language: file.language,
+					reason: "patch_too_large",
+					patchCharacters
+				};
+				skippedFiles.push(skippedFile);
+				analysisTrace.push({
+					path: file.path,
+					language: file.language,
+					rawFindings: 0,
+					highValueFindings: 0,
+					commentsPrepared: 0,
+					skippedReason: skippedFile.reason
+				});
+				continue;
+			}
 			const content = await this.pullRequestClient.getFileContent({
 				owner: request.owner,
 				repo: request.repo,
 				path: file.path,
 				ref: request.headSha
 			});
+			const fileCharacters = content.length;
+			if (fileCharacters > this.options.maxFileCharacters) {
+				const skippedFile = {
+					path: file.path,
+					language: file.language,
+					reason: "file_too_large",
+					fileCharacters
+				};
+				skippedFiles.push(skippedFile);
+				analysisTrace.push({
+					path: file.path,
+					language: file.language,
+					rawFindings: 0,
+					highValueFindings: 0,
+					commentsPrepared: 0,
+					skippedReason: skippedFile.reason
+				});
+				continue;
+			}
 			const rawFindings = await this.analyzer.analyzeFile({
 				owner: request.owner,
 				repo: request.repo,
@@ -19738,7 +19805,8 @@ var PerformanceReviewService = class {
 			totalRawFindings,
 			totalHighValueFindings,
 			analysisTrace,
-			skippedReason: "no_high_value_findings"
+			skippedFiles,
+			skippedReason: analyzedFiles === 0 ? "all_supported_files_skipped" : "no_high_value_findings"
 		};
 		await this.pullRequestClient.submitInlineReview({
 			owner: request.owner,
@@ -19755,7 +19823,8 @@ var PerformanceReviewService = class {
 			activeLanguages,
 			totalRawFindings,
 			totalHighValueFindings,
-			analysisTrace
+			analysisTrace,
+			skippedFiles
 		};
 	}
 };
@@ -23642,6 +23711,7 @@ var GitHubPullRequestClient = class {
 //#region src/main.ts
 var DEFAULT_MODEL = "openai/gpt-4.1";
 var DEFAULT_COPILOT_API_URL = "https://models.github.ai/inference/chat/completions";
+var SKIPPED_COMMENT_MARKER = "<!-- copilot-performance-skipped-files -->";
 function parseSeverity(value) {
 	if (SEVERITY_LEVELS.includes(value)) return value;
 	throw new Error(`Invalid min-severity value: ${value}`);
@@ -23655,12 +23725,65 @@ function parsePositiveInteger(input, fieldName) {
 	if (!Number.isFinite(parsed) || parsed < 1) throw new Error(`${fieldName} must be a positive integer.`);
 	return parsed;
 }
+function parseBooleanInput(input, fieldName) {
+	const normalized = input.toLowerCase();
+	if (normalized === "true") return true;
+	if (normalized === "false") return false;
+	throw new Error(`${fieldName} must be 'true' or 'false'.`);
+}
+function describeSkippedFileReason(skippedFile) {
+	switch (skippedFile.reason) {
+		case "generated_artifact": return "generated/bundled artifact path";
+		case "patch_too_large": return `patch exceeds limit (${skippedFile.patchCharacters ?? 0} chars)`;
+		case "file_too_large": return `file content exceeds limit (${skippedFile.fileCharacters ?? 0} chars)`;
+		default: return "unknown skip reason";
+	}
+}
+async function upsertSkippedFilesComment(input) {
+	if (input.skippedFiles.length === 0) return;
+	const skippedRows = input.skippedFiles.map((file) => {
+		return `- \`${file.path}\` (${file.language}): ${describeSkippedFileReason(file)}`;
+	}).join("\n");
+	const body = [
+		SKIPPED_COMMENT_MARKER,
+		"⚠️ Some files were skipped during performance review",
+		"",
+		`Configured model: \`${input.model}\``,
+		`Skip limits: patch <= ${input.maxPatchCharacters} chars, file <= ${input.maxFileCharacters} chars`,
+		"",
+		skippedRows
+	].join("\n");
+	const existingComment = (await input.octokit.paginate(input.octokit.rest.issues.listComments, {
+		owner: input.owner,
+		repo: input.repo,
+		issue_number: input.pullNumber,
+		per_page: 100
+	})).find((comment) => {
+		return typeof comment.body === "string" && comment.body.includes(SKIPPED_COMMENT_MARKER);
+	});
+	if (existingComment) {
+		await input.octokit.rest.issues.updateComment({
+			owner: input.owner,
+			repo: input.repo,
+			comment_id: existingComment.id,
+			body
+		});
+		return;
+	}
+	await input.octokit.rest.issues.createComment({
+		owner: input.owner,
+		repo: input.repo,
+		issue_number: input.pullNumber,
+		body
+	});
+}
 function logAnalysisOverview(input) {
 	const checks = getPerformanceCheckLabelsForLanguages(input.result.activeLanguages);
 	const languages = input.result.activeLanguages.join(", ") || "none";
 	startGroup("Performance analysis overview");
 	info(`Model: ${input.model}`);
 	info(`Thresholds: severity>=${input.minSeverity}, confidence>=${input.minConfidence}, impact>=${input.minImpactScore}`);
+	info(`Skip limits: patch<=${input.maxPatchCharacters} chars, file<=${input.maxFileCharacters} chars`);
 	info(`Languages analyzed: ${languages}`);
 	if (checks.length > 0) info(`Checks applied: ${checks.join("; ")}`);
 	info(`Supported files detected: ${input.result.supportedFilesDetected}`);
@@ -23668,7 +23791,14 @@ function logAnalysisOverview(input) {
 	info(`Raw findings generated: ${input.result.totalRawFindings}`);
 	info(`High-value findings after filtering: ${input.result.totalHighValueFindings}`);
 	info(`Comments posted: ${input.result.commentsPosted}`);
-	for (const fileSummary of input.result.analysisTrace) info(`- ${fileSummary.path} (${fileSummary.language}): raw=${fileSummary.rawFindings}, high-value=${fileSummary.highValueFindings}, comments-ready=${fileSummary.commentsPrepared}`);
+	info(`Files skipped before model call: ${input.result.skippedFiles.length}`);
+	for (const fileSummary of input.result.analysisTrace) {
+		if (fileSummary.skippedReason) {
+			info(`- ${fileSummary.path} (${fileSummary.language}): skipped=${fileSummary.skippedReason}`);
+			continue;
+		}
+		info(`- ${fileSummary.path} (${fileSummary.language}): raw=${fileSummary.rawFindings}, high-value=${fileSummary.highValueFindings}, comments-ready=${fileSummary.commentsPrepared}`);
+	}
 	endGroup();
 }
 async function run() {
@@ -23686,8 +23816,12 @@ async function run() {
 	const minConfidence = parseConfidence(getInput("min-confidence") || "high");
 	const minImpactScore = parsePositiveInteger(getInput("min-impact-score") || "3", "min-impact-score");
 	const maxFindingsPerFile = parsePositiveInteger(getInput("max-findings-per-file") || "3", "max-findings-per-file");
+	const maxPatchCharacters = parsePositiveInteger(getInput("max-patch-characters") || "6000", "max-patch-characters");
+	const maxFileCharacters = parsePositiveInteger(getInput("max-file-characters") || "12000", "max-file-characters");
+	const skipGeneratedArtifacts = parseBooleanInput(getInput("skip-generated-artifacts") || "true", "skip-generated-artifacts");
 	const reviewSummary = getInput("review-summary") || "Performance review suggestions from Copilot. Address only if the impact aligns with your workload profile.";
-	const service = new PerformanceReviewService(new GitHubPullRequestClient(getOctokit(githubToken)), new CopilotModelsClient({
+	const octokit = getOctokit(githubToken);
+	const service = new PerformanceReviewService(new GitHubPullRequestClient(octokit), new CopilotModelsClient({
 		token: githubToken,
 		apiUrl: copilotApiUrl,
 		model
@@ -23696,6 +23830,9 @@ async function run() {
 		minConfidence,
 		minImpactScore,
 		maxFindingsPerFile,
+		maxPatchCharacters,
+		maxFileCharacters,
+		skipGeneratedArtifacts,
 		reviewSummary
 	});
 	let result;
@@ -23716,7 +23853,9 @@ async function run() {
 			setOutput("analysis-overview", JSON.stringify({
 				model,
 				skippedReason: "model_access_denied",
-				message: "Model access denied for the configured token."
+				message: "Model access denied for the configured token.",
+				maxPatchCharacters,
+				maxFileCharacters
 			}));
 			return;
 		}
@@ -23733,12 +23872,18 @@ async function run() {
 			minConfidence,
 			minImpactScore
 		},
+		limits: {
+			maxPatchCharacters,
+			maxFileCharacters,
+			skipGeneratedArtifacts
+		},
 		activeLanguages: result.activeLanguages,
 		supportedFilesDetected: result.supportedFilesDetected,
 		analyzedFiles: result.analyzedFiles,
 		totalRawFindings: result.totalRawFindings,
 		totalHighValueFindings: result.totalHighValueFindings,
 		commentsPosted: result.commentsPosted,
+		skippedFiles: result.skippedFiles,
 		skippedReason: result.skippedReason ?? null,
 		analysisTrace: result.analysisTrace
 	}));
@@ -23747,9 +23892,22 @@ async function run() {
 		minSeverity,
 		minConfidence,
 		minImpactScore,
+		maxPatchCharacters,
+		maxFileCharacters,
 		result
 	});
+	await upsertSkippedFilesComment({
+		octokit,
+		owner: context.repo.owner,
+		repo: context.repo.repo,
+		pullNumber: pullRequest.number,
+		model,
+		maxPatchCharacters,
+		maxFileCharacters,
+		skippedFiles: result.skippedFiles
+	});
 	if (result.skippedReason === "no_supported_languages") info("No supported languages detected in this PR. Copilot analysis was skipped.");
+	else if (result.skippedReason === "all_supported_files_skipped") info("All supported files were skipped before model analysis due to skip rules.");
 	else if (result.skippedReason === "no_high_value_findings") info("No high-value performance findings were detected.");
 	else info(`Posted ${result.commentsPosted} inline performance review comments.`);
 }

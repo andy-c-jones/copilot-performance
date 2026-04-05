@@ -18,16 +18,19 @@ A JavaScript GitHub Action for Marketplace that reviews pull requests for high-i
 
 ## Inputs
 
-| Name                    | Required | Default                                               | Description                                                        |
-| ----------------------- | -------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
-| `github-token`          | Yes      | n/a                                                   | Token used for GitHub API calls and Copilot/GitHub Models requests |
-| `model`                 | No       | `openai/gpt-4.1`                                      | Model identifier                                                   |
-| `copilot-api-url`       | No       | `https://models.github.ai/inference/chat/completions` | Chat completions endpoint                                          |
-| `min-severity`          | No       | `medium`                                              | `low\|medium\|high\|critical`                                      |
-| `min-confidence`        | No       | `high`                                                | `low\|medium\|high`                                                |
-| `min-impact-score`      | No       | `3`                                                   | Integer 1-5                                                        |
-| `max-findings-per-file` | No       | `3`                                                   | Cap findings per file                                              |
-| `review-summary`        | No       | Built-in default                                      | Review summary text                                                |
+| Name                       | Required | Default                                               | Description                                                        |
+| -------------------------- | -------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
+| `github-token`             | Yes      | n/a                                                   | Token used for GitHub API calls and Copilot/GitHub Models requests |
+| `model`                    | No       | `openai/gpt-4.1`                                      | Model identifier                                                   |
+| `copilot-api-url`          | No       | `https://models.github.ai/inference/chat/completions` | Chat completions endpoint                                          |
+| `min-severity`             | No       | `medium`                                              | `low\|medium\|high\|critical`                                      |
+| `min-confidence`           | No       | `high`                                                | `low\|medium\|high`                                                |
+| `min-impact-score`         | No       | `3`                                                   | Integer 1-5                                                        |
+| `max-findings-per-file`    | No       | `3`                                                   | Cap findings per file                                              |
+| `max-patch-characters`     | No       | `6000`                                                | Skip files with very large patch text                              |
+| `max-file-characters`      | No       | `12000`                                               | Skip files with very large content snapshots                       |
+| `skip-generated-artifacts` | No       | `true`                                                | Skip `dist/`, `coverage/`, `*.map`, and `*.min.*`                  |
+| `review-summary`           | No       | Built-in default                                      | Review summary text                                                |
 
 ## Outputs
 
@@ -92,6 +95,19 @@ npm run build
 If the token cannot access the configured model, the action now exits successfully with `skipped-reason=model_access_denied` and a warning message, instead of failing the workflow.
 
 Even when no comments are posted, the action logs a detailed **Performance analysis overview** section and emits `analysis-overview` so you can see what was checked and how findings were filtered.
+
+When files are skipped (for example, generated artifacts or size limits), the action posts a PR comment summarizing which files were skipped and why.
+
+## GitHub Models limits
+
+GitHub Models applies request limits by model tier and plan (including tokens-per-request). See the official GitHub docs:
+
+- Rate limits and token/request limits: https://docs.github.com/en/github-models/use-github-models/prototyping-with-ai-models#rate-limits
+- Billing and production usage options: https://docs.github.com/en/billing/concepts/product-billing/github-models
+
+Limits differ by model family/tier (for example, low/high/embedding tiers and Azure OpenAI model families), so check the current GitHub table before choosing defaults.
+
+This action includes file/patch size guardrails (`max-patch-characters`, `max-file-characters`) to reduce token-limit failures on large diffs.
 
 ## Marketplace publishing note
 
