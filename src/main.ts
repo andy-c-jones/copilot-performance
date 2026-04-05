@@ -47,6 +47,13 @@ function parseBooleanInput(input: string, fieldName: string): boolean {
   throw new Error(`${fieldName} must be 'true' or 'false'.`);
 }
 
+function parseCsvInput(input: string): string[] {
+  return input
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+}
+
 function describeSkippedFileReason(skippedFile: {
   reason: string;
   patchCharacters?: number;
@@ -55,6 +62,8 @@ function describeSkippedFileReason(skippedFile: {
   switch (skippedFile.reason) {
     case "generated_artifact":
       return "generated/bundled artifact path";
+    case "directory_rule":
+      return "matched configured JS/TS skip directory rule";
     case "patch_too_large":
       return `patch exceeds limit (${skippedFile.patchCharacters ?? 0} chars)`;
     case "file_too_large":
@@ -72,6 +81,7 @@ async function upsertSkippedFilesComment(input: {
   model: string;
   maxPatchCharacters: number;
   maxFileCharacters: number;
+  skipDirectoriesForJavaScriptAndTypeScript: string[];
   skippedFiles: Awaited<ReturnType<PerformanceReviewService["reviewPullRequest"]>>["skippedFiles"];
 }): Promise<void> {
   if (input.skippedFiles.length === 0) {
@@ -90,6 +100,7 @@ async function upsertSkippedFilesComment(input: {
     "",
     `Configured model: \`${input.model}\``,
     `Skip limits: patch <= ${input.maxPatchCharacters} chars, file <= ${input.maxFileCharacters} chars`,
+    `JS/TS skip directories: ${input.skipDirectoriesForJavaScriptAndTypeScript.join(", ") || "none"}`,
     "",
     skippedRows
   ].join("\n");
@@ -130,6 +141,7 @@ function logAnalysisOverview(input: {
   minImpactScore: number;
   maxPatchCharacters: number;
   maxFileCharacters: number;
+  skipDirectoriesForJavaScriptAndTypeScript: string[];
   result: Awaited<ReturnType<PerformanceReviewService["reviewPullRequest"]>>;
 }): void {
   const checks = getPerformanceCheckLabelsForLanguages(input.result.activeLanguages);
@@ -142,6 +154,9 @@ function logAnalysisOverview(input: {
   );
   core.info(
     `Skip limits: patch<=${input.maxPatchCharacters} chars, file<=${input.maxFileCharacters} chars`
+  );
+  core.info(
+    `JS/TS skip directories: ${input.skipDirectoriesForJavaScriptAndTypeScript.join(", ") || "none"}`
   );
   core.info(`Languages analyzed: ${languages}`);
   if (checks.length > 0) {
@@ -205,6 +220,9 @@ async function run(): Promise<void> {
     core.getInput("skip-generated-artifacts") || "true",
     "skip-generated-artifacts"
   );
+  const skipDirectoriesForJavaScriptAndTypeScript = parseCsvInput(
+    core.getInput("skip-js-ts-directories") || ""
+  );
   const reviewSummary =
     core.getInput("review-summary") ||
     "Performance review suggestions from Copilot. Address only if the impact aligns with your workload profile.";
@@ -224,6 +242,7 @@ async function run(): Promise<void> {
     maxPatchCharacters,
     maxFileCharacters,
     skipGeneratedArtifacts,
+    skipDirectoriesForJavaScriptAndTypeScript,
     reviewSummary
   });
 
@@ -251,7 +270,8 @@ async function run(): Promise<void> {
           skippedReason: "model_access_denied",
           message: "Model access denied for the configured token.",
           maxPatchCharacters,
-          maxFileCharacters
+          maxFileCharacters,
+          skipDirectoriesForJavaScriptAndTypeScript
         })
       );
       return;
@@ -275,7 +295,8 @@ async function run(): Promise<void> {
       limits: {
         maxPatchCharacters,
         maxFileCharacters,
-        skipGeneratedArtifacts
+        skipGeneratedArtifacts,
+        skipDirectoriesForJavaScriptAndTypeScript
       },
       activeLanguages: result.activeLanguages,
       supportedFilesDetected: result.supportedFilesDetected,
@@ -296,6 +317,7 @@ async function run(): Promise<void> {
     minImpactScore,
     maxPatchCharacters,
     maxFileCharacters,
+    skipDirectoriesForJavaScriptAndTypeScript,
     result
   });
 
@@ -307,6 +329,7 @@ async function run(): Promise<void> {
     model,
     maxPatchCharacters,
     maxFileCharacters,
+    skipDirectoriesForJavaScriptAndTypeScript,
     skippedFiles: result.skippedFiles
   });
 

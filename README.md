@@ -30,6 +30,7 @@ A JavaScript GitHub Action for Marketplace that reviews pull requests for high-i
 | `max-patch-characters`     | No       | `6000`                                                | Skip files with very large patch text                              |
 | `max-file-characters`      | No       | `12000`                                               | Skip files with very large content snapshots                       |
 | `skip-generated-artifacts` | No       | `true`                                                | Skip `dist/`, `coverage/`, `*.map`, and `*.min.*`                  |
+| `skip-js-ts-directories`   | No       | _empty_                                               | Comma-separated JS/TS directory prefixes to skip                   |
 | `review-summary`           | No       | Built-in default                                      | Review summary text                                                |
 
 ## Outputs
@@ -80,6 +81,7 @@ jobs:
       - uses: ./
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          skip-js-ts-directories: dist
 ```
 
 ## Development
@@ -96,7 +98,7 @@ If the token cannot access the configured model, the action now exits successful
 
 Even when no comments are posted, the action logs a detailed **Performance analysis overview** section and emits `analysis-overview` so you can see what was checked and how findings were filtered.
 
-When files are skipped (for example, generated artifacts or size limits), the action posts a PR comment summarizing which files were skipped and why.
+When files are skipped (for example, generated artifacts, configured JS/TS directories, or size limits), the action posts a PR comment summarizing which files were skipped and why.
 
 ## GitHub Models limits
 

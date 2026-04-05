@@ -65,6 +65,7 @@ const baseOptions = {
   maxPatchCharacters: 6_000,
   maxFileCharacters: 12_000,
   skipGeneratedArtifacts: true,
+  skipDirectoriesForJavaScriptAndTypeScript: [],
   reviewSummary: "summary"
 };
 
@@ -257,5 +258,39 @@ describe("performance review service", () => {
     expect(result.skippedFiles[0]?.reason).toBe("generated_artifact");
     expect(result.skippedFiles[1]?.reason).toBe("patch_too_large");
     expect(analyzer.analyzeFile).not.toHaveBeenCalled();
+  });
+
+  it("skips configured directories for JavaScript/TypeScript only", async () => {
+    const repoClient = new FakePullRequestClient(
+      [
+        { path: "dist/skip-me.ts", status: "modified", additions: 1, deletions: 0, patch: "+x" },
+        { path: "dist/keep.sql", status: "modified", additions: 1, deletions: 0, patch: "+x" }
+      ],
+      {
+        "dist/keep.sql": "select 1;"
+      }
+    );
+    const analyzer: PerformanceAnalyzer = {
+      analyzeFile: vi.fn(async () => [])
+    };
+
+    const service = new PerformanceReviewService(repoClient, analyzer, {
+      ...baseOptions,
+      skipGeneratedArtifacts: false,
+      skipDirectoriesForJavaScriptAndTypeScript: ["dist"]
+    });
+
+    const result = await service.reviewPullRequest({
+      owner: "o",
+      repo: "r",
+      pullNumber: 1,
+      headSha: "abc"
+    });
+
+    expect(result.skippedReason).toBe("no_high_value_findings");
+    expect(result.skippedFiles).toHaveLength(1);
+    expect(result.skippedFiles[0]?.path).toBe("dist/skip-me.ts");
+    expect(result.skippedFiles[0]?.reason).toBe("directory_rule");
+    expect(analyzer.analyzeFile).toHaveBeenCalledTimes(1);
   });
 });

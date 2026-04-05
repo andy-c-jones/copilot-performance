@@ -19649,6 +19649,16 @@ var GENERATED_ARTIFACT_PATTERNS = [
 function isGeneratedArtifactPath(path) {
 	return GENERATED_ARTIFACT_PATTERNS.some((pattern) => pattern.test(path));
 }
+function normalizeDirectoryPrefix(prefix) {
+	return prefix.trim().replace(/^\.?\//, "").replace(/\/+$/, "");
+}
+function shouldSkipByDirectoryRule(language, path, configuredPrefixes) {
+	if (language !== "javascript" && language !== "typescript") return false;
+	const normalizedPath = path.replace(/^\.?\//, "");
+	return configuredPrefixes.map((prefix) => normalizeDirectoryPrefix(prefix)).filter((prefix) => prefix.length > 0).some((prefix) => {
+		return normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`);
+	});
+}
 function dedupeComments(comments) {
 	const seen = /* @__PURE__ */ new Set();
 	const deduped = [];
@@ -19696,6 +19706,24 @@ var PerformanceReviewService = class {
 					path: file.path,
 					language: file.language,
 					reason: "generated_artifact",
+					patchCharacters: file.patch?.length
+				};
+				skippedFiles.push(skippedFile);
+				analysisTrace.push({
+					path: file.path,
+					language: file.language,
+					rawFindings: 0,
+					highValueFindings: 0,
+					commentsPrepared: 0,
+					skippedReason: skippedFile.reason
+				});
+				continue;
+			}
+			if (shouldSkipByDirectoryRule(file.language, file.path, this.options.skipDirectoriesForJavaScriptAndTypeScript)) {
+				const skippedFile = {
+					path: file.path,
+					language: file.language,
+					reason: "directory_rule",
 					patchCharacters: file.patch?.length
 				};
 				skippedFiles.push(skippedFile);
@@ -23731,9 +23759,13 @@ function parseBooleanInput(input, fieldName) {
 	if (normalized === "false") return false;
 	throw new Error(`${fieldName} must be 'true' or 'false'.`);
 }
+function parseCsvInput(input) {
+	return input.split(",").map((value) => value.trim()).filter((value) => value.length > 0);
+}
 function describeSkippedFileReason(skippedFile) {
 	switch (skippedFile.reason) {
 		case "generated_artifact": return "generated/bundled artifact path";
+		case "directory_rule": return "matched configured JS/TS skip directory rule";
 		case "patch_too_large": return `patch exceeds limit (${skippedFile.patchCharacters ?? 0} chars)`;
 		case "file_too_large": return `file content exceeds limit (${skippedFile.fileCharacters ?? 0} chars)`;
 		default: return "unknown skip reason";
@@ -23750,6 +23782,7 @@ async function upsertSkippedFilesComment(input) {
 		"",
 		`Configured model: \`${input.model}\``,
 		`Skip limits: patch <= ${input.maxPatchCharacters} chars, file <= ${input.maxFileCharacters} chars`,
+		`JS/TS skip directories: ${input.skipDirectoriesForJavaScriptAndTypeScript.join(", ") || "none"}`,
 		"",
 		skippedRows
 	].join("\n");
@@ -23784,6 +23817,7 @@ function logAnalysisOverview(input) {
 	info(`Model: ${input.model}`);
 	info(`Thresholds: severity>=${input.minSeverity}, confidence>=${input.minConfidence}, impact>=${input.minImpactScore}`);
 	info(`Skip limits: patch<=${input.maxPatchCharacters} chars, file<=${input.maxFileCharacters} chars`);
+	info(`JS/TS skip directories: ${input.skipDirectoriesForJavaScriptAndTypeScript.join(", ") || "none"}`);
 	info(`Languages analyzed: ${languages}`);
 	if (checks.length > 0) info(`Checks applied: ${checks.join("; ")}`);
 	info(`Supported files detected: ${input.result.supportedFilesDetected}`);
@@ -23819,6 +23853,7 @@ async function run() {
 	const maxPatchCharacters = parsePositiveInteger(getInput("max-patch-characters") || "6000", "max-patch-characters");
 	const maxFileCharacters = parsePositiveInteger(getInput("max-file-characters") || "12000", "max-file-characters");
 	const skipGeneratedArtifacts = parseBooleanInput(getInput("skip-generated-artifacts") || "true", "skip-generated-artifacts");
+	const skipDirectoriesForJavaScriptAndTypeScript = parseCsvInput(getInput("skip-js-ts-directories") || "");
 	const reviewSummary = getInput("review-summary") || "Performance review suggestions from Copilot. Address only if the impact aligns with your workload profile.";
 	const octokit = getOctokit(githubToken);
 	const service = new PerformanceReviewService(new GitHubPullRequestClient(octokit), new CopilotModelsClient({
@@ -23833,6 +23868,7 @@ async function run() {
 		maxPatchCharacters,
 		maxFileCharacters,
 		skipGeneratedArtifacts,
+		skipDirectoriesForJavaScriptAndTypeScript,
 		reviewSummary
 	});
 	let result;
@@ -23855,7 +23891,8 @@ async function run() {
 				skippedReason: "model_access_denied",
 				message: "Model access denied for the configured token.",
 				maxPatchCharacters,
-				maxFileCharacters
+				maxFileCharacters,
+				skipDirectoriesForJavaScriptAndTypeScript
 			}));
 			return;
 		}
@@ -23875,7 +23912,8 @@ async function run() {
 		limits: {
 			maxPatchCharacters,
 			maxFileCharacters,
-			skipGeneratedArtifacts
+			skipGeneratedArtifacts,
+			skipDirectoriesForJavaScriptAndTypeScript
 		},
 		activeLanguages: result.activeLanguages,
 		supportedFilesDetected: result.supportedFilesDetected,
@@ -23894,6 +23932,7 @@ async function run() {
 		minImpactScore,
 		maxPatchCharacters,
 		maxFileCharacters,
+		skipDirectoriesForJavaScriptAndTypeScript,
 		result
 	});
 	await upsertSkippedFilesComment({
@@ -23904,6 +23943,7 @@ async function run() {
 		model,
 		maxPatchCharacters,
 		maxFileCharacters,
+		skipDirectoriesForJavaScriptAndTypeScript,
 		skippedFiles: result.skippedFiles
 	});
 	if (result.skippedReason === "no_supported_languages") info("No supported languages detected in this PR. Copilot analysis was skipped.");

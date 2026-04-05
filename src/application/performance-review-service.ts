@@ -13,6 +13,7 @@ export interface PerformanceReviewServiceOptions {
   maxPatchCharacters: number;
   maxFileCharacters: number;
   skipGeneratedArtifacts: boolean;
+  skipDirectoriesForJavaScriptAndTypeScript: string[];
   reviewSummary: string;
 }
 
@@ -50,7 +51,7 @@ export interface FileAnalysisTrace {
 export interface SkippedFileTrace {
   path: string;
   language: SupportedLanguage;
-  reason: "generated_artifact" | "patch_too_large" | "file_too_large";
+  reason: "generated_artifact" | "directory_rule" | "patch_too_large" | "file_too_large";
   patchCharacters?: number;
   fileCharacters?: number;
 }
@@ -59,6 +60,32 @@ const GENERATED_ARTIFACT_PATTERNS = [/^dist\//i, /^coverage\//i, /\.map$/i, /\.m
 
 function isGeneratedArtifactPath(path: string): boolean {
   return GENERATED_ARTIFACT_PATTERNS.some((pattern) => pattern.test(path));
+}
+
+function normalizeDirectoryPrefix(prefix: string): string {
+  return prefix
+    .trim()
+    .replace(/^\.?\//, "")
+    .replace(/\/+$/, "");
+}
+
+function shouldSkipByDirectoryRule(
+  language: SupportedLanguage,
+  path: string,
+  configuredPrefixes: string[]
+): boolean {
+  if (language !== "javascript" && language !== "typescript") {
+    return false;
+  }
+
+  const normalizedPath = path.replace(/^\.?\//, "");
+  const normalizedPrefixes = configuredPrefixes
+    .map((prefix) => normalizeDirectoryPrefix(prefix))
+    .filter((prefix) => prefix.length > 0);
+
+  return normalizedPrefixes.some((prefix) => {
+    return normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`);
+  });
 }
 
 function dedupeComments(comments: InlineReviewComment[]): InlineReviewComment[] {
@@ -126,6 +153,31 @@ export class PerformanceReviewService {
           path: file.path,
           language: file.language,
           reason: "generated_artifact",
+          patchCharacters: file.patch?.length
+        };
+        skippedFiles.push(skippedFile);
+        analysisTrace.push({
+          path: file.path,
+          language: file.language,
+          rawFindings: 0,
+          highValueFindings: 0,
+          commentsPrepared: 0,
+          skippedReason: skippedFile.reason
+        });
+        continue;
+      }
+
+      if (
+        shouldSkipByDirectoryRule(
+          file.language,
+          file.path,
+          this.options.skipDirectoriesForJavaScriptAndTypeScript
+        )
+      ) {
+        const skippedFile: SkippedFileTrace = {
+          path: file.path,
+          language: file.language,
+          reason: "directory_rule",
           patchCharacters: file.patch?.length
         };
         skippedFiles.push(skippedFile);
