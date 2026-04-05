@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AnalyzeFileInput } from "../src/application/ports";
 import { CopilotModelsClient } from "../src/infrastructure/copilot-models-client";
 
-const analyzeInput = {
+const analyzeInput: AnalyzeFileInput = {
   owner: "o",
   repo: "r",
   pullNumber: 1,
   path: "src/file.ts",
-  language: "typescript" as const,
+  language: "typescript",
   patch: "@@ -1,0 +1,1 @@\n+const x = 1;",
   content: "const x = 1;",
-  activeLanguages: ["typescript"] as const,
+  activeLanguages: ["typescript"],
   maxFindingsPerFile: 3
 };
 
@@ -61,7 +62,7 @@ describe("copilot models client", () => {
 
     const findings = await client.analyzeFile(analyzeInput);
     expect(findings).toHaveLength(1);
-    expect(findings[0].severity).toBe("high");
+    expect(findings[0]?.severity).toBe("high");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

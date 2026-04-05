@@ -69,7 +69,7 @@ function extractMessageText(response: ChatCompletionResponse): string {
 
 function extractJsonPayload(content: string): unknown {
   const fencedMatch = /```(?:json)?\s*([\s\S]*?)```/i.exec(content);
-  const rawJson = fencedMatch ? fencedMatch[1] : content;
+  const rawJson = fencedMatch?.[1] ?? content;
 
   try {
     return JSON.parse(rawJson);

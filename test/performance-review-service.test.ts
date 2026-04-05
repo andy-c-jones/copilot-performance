@@ -118,9 +118,10 @@ describe("performance review service", () => {
       headSha: "abc"
     });
 
+    const firstReview = repoClient.submittedReviews[0];
     expect(result.commentsPosted).toBe(1);
     expect(repoClient.submittedReviews).toHaveLength(1);
-    expect(repoClient.submittedReviews[0].comments[0].line).toBe(1);
+    expect(firstReview?.comments[0]?.line).toBe(1);
   });
 
   it("does not submit review when findings fail thresholds", async () => {
@@ -137,7 +138,7 @@ describe("performance review service", () => {
       { "src/a.ts": "const a = 1;\n" }
     );
     const analyzer: PerformanceAnalyzer = {
-      analyzeFile: vi.fn(async () => [{ ...sampleFinding, severity: "low" }])
+      analyzeFile: vi.fn(async () => [{ ...sampleFinding, severity: "low" as const }])
     };
 
     const service = new PerformanceReviewService(repoClient, analyzer, {
@@ -191,8 +192,9 @@ describe("performance review service", () => {
       headSha: "abc"
     });
 
+    const firstReview = repoClient.submittedReviews[0];
     expect(result.commentsPosted).toBe(1);
-    expect(repoClient.submittedReviews[0].comments).toHaveLength(1);
+    expect(firstReview?.comments).toHaveLength(1);
   });
 
   it("skips finding when no comment line can be resolved", async () => {

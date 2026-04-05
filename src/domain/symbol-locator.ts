@@ -84,8 +84,7 @@ export function locateSymbolDefinitionLine(input: {
   }
 
   const lines = input.content.split("\n");
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const line = lines[lineIndex];
+  for (const [lineIndex, line] of lines.entries()) {
     if (patterns.some((pattern) => pattern.test(line))) {
       return lineIndex + 1;
     }

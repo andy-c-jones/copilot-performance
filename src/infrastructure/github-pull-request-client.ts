@@ -52,19 +52,32 @@ export class GitHubPullRequestClient implements PullRequestClient {
       ref: input.ref
     });
 
-    if (Array.isArray(response.data)) {
+    const contentResponse = response.data;
+
+    if (Array.isArray(contentResponse)) {
       throw new Error(`Expected file content for ${input.path}, but received a directory.`);
     }
 
-    if (typeof response.data.content !== "string" || typeof response.data.encoding !== "string") {
+    if (contentResponse.type !== "file") {
+      throw new Error(
+        `Expected file content for ${input.path}, but received a ${contentResponse.type}.`
+      );
+    }
+
+    if (
+      typeof contentResponse.content !== "string" ||
+      typeof contentResponse.encoding !== "string"
+    ) {
       throw new Error(`GitHub did not return decodable file content for ${input.path}.`);
     }
 
-    if (response.data.encoding !== "base64") {
-      throw new Error(`Unsupported content encoding for ${input.path}: ${response.data.encoding}.`);
+    if (contentResponse.encoding !== "base64") {
+      throw new Error(
+        `Unsupported content encoding for ${input.path}: ${contentResponse.encoding}.`
+      );
     }
 
-    return Buffer.from(response.data.content, "base64").toString("utf8");
+    return Buffer.from(contentResponse.content, "base64").toString("utf8");
   }
 
   public async submitInlineReview(input: SubmitInlineReviewInput): Promise<void> {

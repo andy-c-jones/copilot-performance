@@ -13,7 +13,12 @@ export function extractAddedLinesFromPatch(patch?: string): Set<number> {
       if (!match) {
         continue;
       }
-      currentNewLine = Number.parseInt(match[1], 10);
+      const newLineStart = match[1];
+      if (!newLineStart) {
+        continue;
+      }
+
+      currentNewLine = Number.parseInt(newLineStart, 10);
       continue;
     }
 
@@ -42,15 +47,15 @@ export function findNearestChangedLine(
   target: number
 ): number | undefined {
   const sorted = [...changedLines].sort((a, b) => a - b);
-  if (sorted.length === 0) {
+  const firstLine = sorted[0];
+  if (firstLine === undefined) {
     return undefined;
   }
 
-  let nearest = sorted[0];
-  let nearestDistance = Math.abs(sorted[0] - target);
+  let nearest = firstLine;
+  let nearestDistance = Math.abs(firstLine - target);
 
-  for (let index = 1; index < sorted.length; index += 1) {
-    const line = sorted[index];
+  for (const line of sorted.slice(1)) {
     const distance = Math.abs(line - target);
     if (distance < nearestDistance) {
       nearest = line;
