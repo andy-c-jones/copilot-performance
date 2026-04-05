@@ -293,4 +293,30 @@ describe("performance review service", () => {
     expect(result.skippedFiles[0]?.reason).toBe("directory_rule");
     expect(analyzer.analyzeFile).toHaveBeenCalledTimes(1);
   });
+
+  it("skips file when content exceeds max file characters", async () => {
+    const repoClient = new FakePullRequestClient(
+      [{ path: "src/huge.ts", status: "modified", additions: 1, deletions: 0, patch: "+x" }],
+      { "src/huge.ts": "x".repeat(500) }
+    );
+    const analyzer: PerformanceAnalyzer = {
+      analyzeFile: vi.fn(async () => [sampleFinding])
+    };
+
+    const service = new PerformanceReviewService(repoClient, analyzer, {
+      ...baseOptions,
+      maxFileCharacters: 100
+    });
+
+    const result = await service.reviewPullRequest({
+      owner: "o",
+      repo: "r",
+      pullNumber: 1,
+      headSha: "abc"
+    });
+
+    expect(result.skippedReason).toBe("all_supported_files_skipped");
+    expect(result.skippedFiles[0]?.reason).toBe("file_too_large");
+    expect(analyzer.analyzeFile).not.toHaveBeenCalled();
+  });
 });
