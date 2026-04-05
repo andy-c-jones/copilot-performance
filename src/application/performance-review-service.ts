@@ -89,16 +89,21 @@ function shouldSkipByDirectoryRule(
 }
 
 function dedupeComments(comments: InlineReviewComment[]): InlineReviewComment[] {
-  const seen = new Set<string>();
   const deduped: InlineReviewComment[] = [];
 
   for (const comment of comments) {
-    const key = `${comment.path}:${comment.line}:${comment.body}`;
-    if (seen.has(key)) {
+    const alreadyIncluded = deduped.some((existingComment) => {
+      return (
+        existingComment.path === comment.path &&
+        existingComment.line === comment.line &&
+        existingComment.body === comment.body
+      );
+    });
+
+    if (alreadyIncluded) {
       continue;
     }
 
-    seen.add(key);
     deduped.push(comment);
   }
 
