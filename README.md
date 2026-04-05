@@ -52,6 +52,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  models: read
 
 jobs:
   review:
@@ -86,6 +87,8 @@ npm run format:check
 npm run coverage
 npm run build
 ```
+
+If the token cannot access the configured model, the action now exits successfully with `skipped-reason=model_access_denied` and a warning message, instead of failing the workflow.
 
 ## Marketplace publishing note
 

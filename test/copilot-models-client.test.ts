@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AnalyzeFileInput } from "../src/application/ports";
-import { CopilotModelsClient } from "../src/infrastructure/copilot-models-client";
+import {
+  CopilotModelAccessError,
+  CopilotModelsClient
+} from "../src/infrastructure/copilot-models-client";
 
 const analyzeInput: AnalyzeFileInput = {
   owner: "o",
@@ -148,6 +151,29 @@ ${JSON.stringify({
     });
 
     await expect(client.analyzeFile(analyzeInput)).rejects.toThrow("Copilot request failed (500)");
+  });
+
+  it("throws model access error when model is denied", async () => {
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: "no_access",
+            message: "No access to model"
+          }
+        }),
+        { status: 403 }
+      );
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new CopilotModelsClient({
+      token: "token",
+      apiUrl: "https://example.test/chat",
+      model: "blocked-model"
+    });
+
+    await expect(client.analyzeFile(analyzeInput)).rejects.toBeInstanceOf(CopilotModelAccessError);
   });
 
   it("throws when response has no content", async () => {

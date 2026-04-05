@@ -54,6 +54,24 @@ export interface CopilotModelsClientOptions {
   model: string;
 }
 
+interface CopilotErrorResponse {
+  error?: {
+    code?: string;
+    message?: string;
+  };
+}
+
+export class CopilotModelAccessError extends Error {
+  public constructor(
+    public readonly model: string,
+    public readonly status: number,
+    public readonly responseBody: string
+  ) {
+    super(`Copilot model '${model}' is not accessible with the provided token (status ${status}).`);
+    this.name = "CopilotModelAccessError";
+  }
+}
+
 function extractMessageText(response: ChatCompletionResponse): string {
   const content = response.choices?.[0]?.message?.content;
   if (typeof content === "string") {
@@ -77,6 +95,15 @@ function extractJsonPayload(content: string): unknown {
     throw new Error("Copilot response was not valid JSON.", {
       cause: error
     });
+  }
+}
+
+function parseCopilotErrorCode(body: string): string | undefined {
+  try {
+    const parsed = JSON.parse(body) as CopilotErrorResponse;
+    return parsed.error?.code;
+  } catch {
+    return undefined;
   }
 }
 
@@ -110,6 +137,9 @@ export class CopilotModelsClient implements PerformanceAnalyzer {
 
     if (!response.ok) {
       const body = await response.text();
+      if (response.status === 403 && parseCopilotErrorCode(body) === "no_access") {
+        throw new CopilotModelAccessError(this.options.model, response.status, body);
+      }
       throw new Error(`Copilot request failed (${response.status}): ${body}`);
     }
 

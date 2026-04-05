@@ -3,7 +3,10 @@ import * as github from "@actions/github";
 
 import { PerformanceReviewService } from "./application/performance-review-service";
 import { CONFIDENCE_LEVELS, SEVERITY_LEVELS, type Confidence, type Severity } from "./domain/types";
-import { CopilotModelsClient } from "./infrastructure/copilot-models-client";
+import {
+  CopilotModelAccessError,
+  CopilotModelsClient
+} from "./infrastructure/copilot-models-client";
 import { GitHubPullRequestClient } from "./infrastructure/github-pull-request-client";
 
 const DEFAULT_MODEL = "openai/gpt-4.1";
@@ -75,12 +78,27 @@ async function run(): Promise<void> {
     reviewSummary
   });
 
-  const result = await service.reviewPullRequest({
-    owner: github.context.repo.owner,
-    repo: github.context.repo.repo,
-    pullNumber: pullRequest.number,
-    headSha: pullRequest.head.sha
-  });
+  let result;
+  try {
+    result = await service.reviewPullRequest({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      pullNumber: pullRequest.number,
+      headSha: pullRequest.head.sha
+    });
+  } catch (error) {
+    if (error instanceof CopilotModelAccessError) {
+      core.warning(
+        `Skipping Copilot analysis because model access was denied for '${model}'. Ensure the workflow has 'models: read' permission or configure a model your token can access.`
+      );
+      core.setOutput("supported-files-detected", "0");
+      core.setOutput("analyzed-files", "0");
+      core.setOutput("comments-posted", "0");
+      core.setOutput("skipped-reason", "model_access_denied");
+      return;
+    }
+    throw error;
+  }
 
   core.setOutput("supported-files-detected", result.supportedFilesDetected.toString());
   core.setOutput("analyzed-files", result.analyzedFiles.toString());
