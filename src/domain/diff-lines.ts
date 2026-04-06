@@ -13,12 +13,8 @@ export function extractAddedLinesFromPatch(patch?: string): Set<number> {
       if (!match) {
         continue;
       }
-      const newLineStart = match[1];
-      if (!newLineStart) {
-        continue;
-      }
 
-      currentNewLine = Number.parseInt(newLineStart, 10);
+      currentNewLine = Number.parseInt(match[1], 10);
       continue;
     }
 
@@ -36,6 +32,51 @@ export function extractAddedLinesFromPatch(patch?: string): Set<number> {
       continue;
     }
 
+    currentNewLine += 1;
+  }
+
+  return result;
+}
+
+export function extractRightSideLinesFromPatch(patch?: string): Set<number> {
+  if (!patch) {
+    return new Set<number>();
+  }
+
+  const result = new Set<number>();
+  const lines = patch.split("\n");
+  let currentNewLine: number | undefined;
+
+  for (const line of lines) {
+    if (line.startsWith("@@")) {
+      const match = /@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+      if (!match) {
+        continue;
+      }
+
+      currentNewLine = Number.parseInt(match[1], 10);
+      continue;
+    }
+
+    if (currentNewLine === undefined) {
+      continue;
+    }
+
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      result.add(currentNewLine);
+      currentNewLine += 1;
+      continue;
+    }
+
+    if (line.startsWith("-") && !line.startsWith("---")) {
+      continue;
+    }
+
+    if (line.startsWith("\\")) {
+      continue;
+    }
+
+    result.add(currentNewLine);
     currentNewLine += 1;
   }
 

@@ -19593,9 +19593,7 @@ function extractAddedLinesFromPatch(patch) {
 		if (line.startsWith("@@")) {
 			const match = /@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
 			if (!match) continue;
-			const newLineStart = match[1];
-			if (!newLineStart) continue;
-			currentNewLine = Number.parseInt(newLineStart, 10);
+			currentNewLine = Number.parseInt(match[1], 10);
 			continue;
 		}
 		if (currentNewLine === void 0) continue;
@@ -19605,6 +19603,31 @@ function extractAddedLinesFromPatch(patch) {
 			continue;
 		}
 		if (line.startsWith("-") && !line.startsWith("---")) continue;
+		currentNewLine += 1;
+	}
+	return result;
+}
+function extractRightSideLinesFromPatch(patch) {
+	if (!patch) return /* @__PURE__ */ new Set();
+	const result = /* @__PURE__ */ new Set();
+	const lines = patch.split("\n");
+	let currentNewLine;
+	for (const line of lines) {
+		if (line.startsWith("@@")) {
+			const match = /@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+			if (!match) continue;
+			currentNewLine = Number.parseInt(match[1], 10);
+			continue;
+		}
+		if (currentNewLine === void 0) continue;
+		if (line.startsWith("+") && !line.startsWith("+++")) {
+			result.add(currentNewLine);
+			currentNewLine += 1;
+			continue;
+		}
+		if (line.startsWith("-") && !line.startsWith("---")) continue;
+		if (line.startsWith("\\")) continue;
+		result.add(currentNewLine);
 		currentNewLine += 1;
 	}
 	return result;
@@ -19628,6 +19651,12 @@ function findNearestChangedLine(changedLines, target) {
 //#region src/domain/symbol-locator.ts
 function escapeRegExp(value) {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function normalizeSymbolName(symbolName) {
+	const trimmed = symbolName.trim();
+	if (!trimmed) return "";
+	const segments = trimmed.replace(/\(.*\)\s*$/, "").replace(/<[^>]+>\s*$/, "").split(/::|[.#]/);
+	return (segments[segments.length - 1] ?? "").trim();
 }
 function jsTsPatterns(symbolName, symbolKind) {
 	const name = escapeRegExp(symbolName);
@@ -19672,7 +19701,9 @@ function patternsFor(language, symbolName, symbolKind) {
 }
 function locateSymbolDefinitionLine(input) {
 	if (!input.symbolName) return;
-	const patterns = patternsFor(input.language, input.symbolName, input.symbolKind);
+	const normalizedSymbolName = normalizeSymbolName(input.symbolName);
+	if (!normalizedSymbolName) return;
+	const patterns = patternsFor(input.language, normalizedSymbolName, input.symbolKind);
 	if (patterns.length === 0) return;
 	const lines = input.content.split("\n");
 	for (const [lineIndex, line] of lines.entries()) if (patterns.some((pattern) => pattern.test(line))) return lineIndex + 1;
@@ -19681,15 +19712,17 @@ function locateSymbolDefinitionLine(input) {
 //#region src/application/line-targeting.ts
 function resolveFindingLine(input) {
 	const changedLines = extractAddedLinesFromPatch(input.patch);
-	const preferredLine = locateSymbolDefinitionLine({
+	const rightSideLines = extractRightSideLinesFromPatch(input.patch);
+	const symbolLine = locateSymbolDefinitionLine({
 		content: input.content,
 		language: input.language,
 		symbolName: input.finding.symbolName,
 		symbolKind: input.finding.symbolKind
-	}) ?? input.finding.line;
+	});
+	if (symbolLine && (rightSideLines.size === 0 || rightSideLines.has(symbolLine))) return symbolLine;
+	const preferredLine = input.finding.line;
 	if (!preferredLine) return changedLines.size > 0 ? Math.min(...changedLines) : void 0;
-	if (changedLines.size === 0) return preferredLine;
-	if (changedLines.has(preferredLine)) return preferredLine;
+	if (rightSideLines.size === 0 || rightSideLines.has(preferredLine)) return preferredLine;
 	return findNearestChangedLine(changedLines, preferredLine);
 }
 //#endregion
