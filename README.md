@@ -104,6 +104,7 @@ Use the manual **release** workflow (`.github/workflows/release.yml`) to publish
 - Trigger it with **Run workflow** in GitHub Actions.
 - Provide `version` as `x.y.z` (without `v`), for example `1.2.3`.
 - The workflow creates tag `v1.2.3` from `main` and publishes a release with automatic release notes.
+- The workflow also creates or force-moves the matching major tag (`v1`, `v2`, etc.) when the new release is the highest in that major, so each major tag stays on the latest release in its major line.
 
 If the token cannot access the configured model, the action now exits successfully with `skipped-reason=model_access_denied` and a warning message, instead of failing the workflow.
 
