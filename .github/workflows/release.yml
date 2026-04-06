@@ -30,6 +30,35 @@ jobs:
             const version = "${{ inputs.version }}";
             const tagName = `v${version}`;
 
+            function parseSemverTag(tag) {
+              const match = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
+              if (!match) {
+                return undefined;
+              }
+              return {
+                major: Number.parseInt(match[1], 10),
+                minor: Number.parseInt(match[2], 10),
+                patch: Number.parseInt(match[3], 10)
+              };
+            }
+
+            function compareSemver(left, right) {
+              if (left.major !== right.major) {
+                return left.major - right.major;
+              }
+              if (left.minor !== right.minor) {
+                return left.minor - right.minor;
+              }
+              return left.patch - right.patch;
+            }
+
+            const parsedCurrentTag = parseSemverTag(tagName);
+            if (!parsedCurrentTag) {
+              throw new Error(`Invalid release tag: ${tagName}`);
+            }
+
+            const majorTagName = `v${parsedCurrentTag.major}`;
+
             const release = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -39,4 +68,69 @@ jobs:
               generate_release_notes: true
             });
 
+            const tags = await github.paginate(github.rest.repos.listTags, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+
+            const majorReleaseTags = tags
+              .map((tag) => ({
+                name: tag.name,
+                parsed: parseSemverTag(tag.name)
+              }))
+              .filter((tag) => tag.parsed && tag.parsed.major === parsedCurrentTag.major);
+
+            const highestMajorReleaseTag = majorReleaseTags.reduce((best, candidate) => {
+              if (!best) {
+                return candidate;
+              }
+              return compareSemver(candidate.parsed, best.parsed) > 0 ? candidate : best;
+            }, undefined);
+
+            if (!highestMajorReleaseTag || highestMajorReleaseTag.name !== tagName) {
+              const highestTagName = highestMajorReleaseTag?.name ?? "none";
+              core.notice(
+                `Leaving ${majorTagName} unchanged because ${tagName} is not the highest v${parsedCurrentTag.major} release tag (highest: ${highestTagName}).`
+              );
+              core.notice(`Created release: ${release.data.html_url}`);
+              return;
+            }
+
+            const releaseTagRef = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `tags/${tagName}`
+            });
+
+            const tagSha = releaseTagRef.data.object.sha;
+
+            try {
+              await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${majorTagName}`
+              });
+
+              await github.rest.git.updateRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `tags/${majorTagName}`,
+                sha: tagSha,
+                force: true
+              });
+            } catch (error) {
+              if (error?.status !== 404) {
+                throw error;
+              }
+
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/tags/${majorTagName}`,
+                sha: tagSha
+              });
+            }
+
             core.notice(`Created release: ${release.data.html_url}`);
+            core.notice(`Updated major tag ${majorTagName} -> ${tagName} (highest in major).`);
