@@ -267,10 +267,10 @@ describe("performance review service", () => {
     const repoClient = new FakePullRequestClient(
       [
         { path: "dist/skip-me.ts", status: "modified", additions: 1, deletions: 0, patch: "+x" },
-        { path: "dist/skip-me.sql", status: "modified", additions: 1, deletions: 0, patch: "+x" }
+        { path: "dist/skip-me.cs", status: "modified", additions: 1, deletions: 0, patch: "+x" }
       ],
       {
-        "dist/skip-me.sql": "select 1;"
+        "dist/skip-me.cs": "public class SkipMe {}"
       }
     );
     const analyzer: PerformanceAnalyzer = {
@@ -294,7 +294,7 @@ describe("performance review service", () => {
     expect(result.skippedFiles).toHaveLength(2);
     expect(result.skippedFiles[0]?.path).toBe("dist/skip-me.ts");
     expect(result.skippedFiles[0]?.reason).toBe("directory_rule");
-    expect(result.skippedFiles[1]?.path).toBe("dist/skip-me.sql");
+    expect(result.skippedFiles[1]?.path).toBe("dist/skip-me.cs");
     expect(result.skippedFiles[1]?.reason).toBe("directory_rule");
     expect(analyzer.analyzeFile).not.toHaveBeenCalled();
   });

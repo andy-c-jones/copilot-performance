@@ -75,8 +75,6 @@ function patternsFor(
       return jsTsPatterns(symbolName, normalizedKind);
     case "csharp":
       return csharpPatterns(symbolName, normalizedKind);
-    default:
-      return [];
   }
 }
 
@@ -96,9 +94,6 @@ export function locateSymbolDefinitionLine(input: {
   }
 
   const patterns = patternsFor(input.language, normalizedSymbolName, input.symbolKind);
-  if (patterns.length === 0) {
-    return undefined;
-  }
 
   const lines = input.content.split("\n");
   for (const [lineIndex, line] of lines.entries()) {

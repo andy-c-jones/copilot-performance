@@ -5,11 +5,11 @@ A JavaScript GitHub Action for Marketplace that reviews pull requests for perfor
 ## What it does
 
 - Runs on pull requests.
-- Detects supported languages from changed file extensions: **JavaScript, TypeScript, SQL, C#**.
+- Detects supported languages from changed file extensions: **JavaScript, TypeScript, C#**.
 - Calls Copilot/GitHub Models **only when supported languages are present**.
 - Uses language-specific performance prompts:
   - JavaScript/TypeScript: React and Web Components checks.
-  - C#: EF and NHibernate checks.
+  - C#: EF/NHibernate, LINQ, and .NET logging checks.
 - Focuses on meaningful performance issues:
   - Big-O complexity and growth impact.
   - Common anti-patterns with practical severity.

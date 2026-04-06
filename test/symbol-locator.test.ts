@@ -94,17 +94,8 @@ describe("symbol locator", () => {
     ).toBe(2);
   });
 
-  it("returns undefined for unsupported language or missing symbol name", () => {
+  it("returns undefined for missing symbol name", () => {
     const content = "select * from users;";
-
-    expect(
-      locateSymbolDefinitionLine({
-        content,
-        language: "sql",
-        symbolName: "users",
-        symbolKind: "query"
-      })
-    ).toBeUndefined();
 
     expect(
       locateSymbolDefinitionLine({

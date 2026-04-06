@@ -4,11 +4,11 @@ import { classifySupportedFiles, detectSupportedLanguage } from "../src/domain/l
 import type { PullRequestFile } from "../src/domain/types";
 
 describe("language classifier", () => {
-  it("detects supported extensions", () => {
+  it("detects supported extensions and ignores unsupported ones", () => {
     expect(detectSupportedLanguage("a.js")).toBe("javascript");
     expect(detectSupportedLanguage("a.tsx")).toBe("typescript");
-    expect(detectSupportedLanguage("q.sql")).toBe("sql");
     expect(detectSupportedLanguage("Repo.cs")).toBe("csharp");
+    expect(detectSupportedLanguage("q.sql")).toBeUndefined();
   });
 
   it("classifies supported files and ignores unsupported files", () => {

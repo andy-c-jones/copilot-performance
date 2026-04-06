@@ -1,4 +1,4 @@
-export const SUPPORTED_LANGUAGES = ["javascript", "typescript", "sql", "csharp"] as const;
+export const SUPPORTED_LANGUAGES = ["javascript", "typescript", "csharp"] as const;
 export const SEVERITY_LEVELS = ["low", "medium", "high", "critical"] as const;
 export const CONFIDENCE_LEVELS = ["low", "medium", "high"] as const;
 export const IMPACT_LEVELS = ["all", "low", "medium", "high"] as const;

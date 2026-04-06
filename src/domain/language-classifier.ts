@@ -9,7 +9,6 @@ const EXTENSION_TO_LANGUAGE: Record<string, SupportedLanguage> = {
   ".cjs": "javascript",
   ".ts": "typescript",
   ".tsx": "typescript",
-  ".sql": "sql",
   ".cs": "csharp"
 };
 
