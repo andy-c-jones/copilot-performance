@@ -12,12 +12,18 @@ describe("prompt builder", () => {
       language: "typescript",
       patch: "@@ -1,0 +1,1 @@\n+const x = 1;",
       content: "const x = 1;",
-      activeLanguages: ["typescript", "csharp"],
+      activeLanguages: ["javascript", "typescript", "csharp"],
       maxFindingsPerFile: 3
     });
 
+    expect(prompts.systemPrompt).toContain("javascript");
     expect(prompts.systemPrompt).toContain("typescript");
     expect(prompts.systemPrompt).toContain("csharp");
+    expect(prompts.systemPrompt).toContain("Promise.all");
+    expect(prompts.systemPrompt).toContain("schema validation");
+    expect(prompts.systemPrompt).toContain("LINQ");
+    expect(prompts.systemPrompt).toContain(".NET logging");
+    expect(prompts.systemPrompt).toContain(".Result/.Wait");
     expect(prompts.userPrompt).toContain("src/app.tsx");
   });
 
