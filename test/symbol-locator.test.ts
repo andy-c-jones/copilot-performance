@@ -115,4 +115,66 @@ describe("symbol locator", () => {
       })
     ).toBeUndefined();
   });
+
+  it("normalizes symbol names with call syntax before lookup", () => {
+    const content = [
+      "const SKIPPED_COMMENT_MARKER = getSkippedFilesCommentMarker();",
+      "export async function upsertSkippedFilesComment(input) {",
+      "  return input;",
+      "}"
+    ].join("\n");
+
+    expect(
+      locateSymbolDefinitionLine({
+        content,
+        language: "typescript",
+        symbolName: "upsertSkippedFilesComment(input)",
+        symbolKind: "function"
+      })
+    ).toBe(2);
+  });
+
+  it("finds C# function symbols as methods", () => {
+    const content = ["public class Repo {", "  public async Task SaveAsync() { }", "}"].join("\n");
+
+    expect(
+      locateSymbolDefinitionLine({
+        content,
+        language: "csharp",
+        symbolName: "SaveAsync",
+        symbolKind: "function"
+      })
+    ).toBe(2);
+  });
+
+  it("returns undefined for empty or non-matching normalized symbols", () => {
+    const content = ["export function known() {}", "const other = true;"].join("\n");
+
+    expect(
+      locateSymbolDefinitionLine({
+        content,
+        language: "typescript",
+        symbolName: "   ",
+        symbolKind: "function"
+      })
+    ).toBeUndefined();
+
+    expect(
+      locateSymbolDefinitionLine({
+        content,
+        language: "typescript",
+        symbolName: "()",
+        symbolKind: "function"
+      })
+    ).toBeUndefined();
+
+    expect(
+      locateSymbolDefinitionLine({
+        content,
+        language: "typescript",
+        symbolName: "missingSymbol()",
+        symbolKind: "function"
+      })
+    ).toBeUndefined();
+  });
 });

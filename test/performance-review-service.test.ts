@@ -130,6 +130,9 @@ describe("performance review service", () => {
     expect(result.analysisTrace[0]?.path).toBe("src/a.ts");
     expect(result.skippedFiles).toEqual([]);
     expect(repoClient.submittedReviews).toHaveLength(1);
+    expect(firstReview?.body).toContain("<!-- copilot-performance-review -->");
+    expect(firstReview?.body).toContain("**Commenting tool:** `andy-c-jones/copilot-performance`");
+    expect(firstReview?.body).toContain("summary");
     expect(firstReview?.comments[0]?.line).toBe(1);
   });
 
@@ -293,6 +296,35 @@ describe("performance review service", () => {
     expect(result.skippedFiles[0]?.reason).toBe("directory_rule");
     expect(result.skippedFiles[1]?.path).toBe("dist/skip-me.sql");
     expect(result.skippedFiles[1]?.reason).toBe("directory_rule");
+    expect(analyzer.analyzeFile).not.toHaveBeenCalled();
+  });
+
+  it("prioritizes configured directory-rule skip over generated-artifact skip", async () => {
+    const repoClient = new FakePullRequestClient(
+      [{ path: "dist/index.js", status: "modified", additions: 1, deletions: 0, patch: "+x" }],
+      {}
+    );
+    const analyzer: PerformanceAnalyzer = {
+      analyzeFile: vi.fn(async () => [])
+    };
+
+    const service = new PerformanceReviewService(repoClient, analyzer, {
+      ...baseOptions,
+      skipGeneratedArtifacts: true,
+      skipDirectories: ["dist"]
+    });
+
+    const result = await service.reviewPullRequest({
+      owner: "o",
+      repo: "r",
+      pullNumber: 1,
+      headSha: "abc"
+    });
+
+    expect(result.skippedReason).toBe("all_supported_files_skipped");
+    expect(result.skippedFiles).toHaveLength(1);
+    expect(result.skippedFiles[0]?.path).toBe("dist/index.js");
+    expect(result.skippedFiles[0]?.reason).toBe("directory_rule");
     expect(analyzer.analyzeFile).not.toHaveBeenCalled();
   });
 

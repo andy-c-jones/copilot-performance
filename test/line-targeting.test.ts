@@ -39,6 +39,37 @@ describe("line targeting", () => {
     expect(line).toBe(1);
   });
 
+  it("anchors function findings to signature line when signature is in patch context", () => {
+    const content = [
+      "export async function upsertSkippedFilesComment(input: Input): Promise<void> {",
+      "  const existing = await listComments();",
+      "  return existing;",
+      "}"
+    ].join("\n");
+
+    const patch = [
+      "@@ -1,3 +1,4 @@",
+      " export async function upsertSkippedFilesComment(input: Input): Promise<void> {",
+      "+  const reviewed = true;",
+      "   const existing = await listComments();",
+      "   return existing;",
+      " }"
+    ].join("\n");
+
+    const line = resolveFindingLine({
+      finding: {
+        ...baseFinding,
+        symbolName: "upsertSkippedFilesComment",
+        symbolKind: "function"
+      },
+      language: "typescript",
+      content,
+      patch
+    });
+
+    expect(line).toBe(1);
+  });
+
   it("falls back to nearest changed line when preferred line is outside patch", () => {
     const content = ["function expensive() {}", "function caller() {}", "caller();"].join("\n");
     const patch = ["@@ -3,0 +3,1 @@", "+caller();"].join("\n");
@@ -51,6 +82,25 @@ describe("line targeting", () => {
     });
 
     expect(line).toBe(3);
+  });
+
+  it("keeps model-provided line when it is present in patch context", () => {
+    const content = ["const marker = true;", "function expensive() {}", "caller();"].join("\n");
+    const patch = [
+      "@@ -1,3 +1,4 @@",
+      " const marker = true;",
+      "+const added = true;",
+      " caller();"
+    ].join("\n");
+
+    const line = resolveFindingLine({
+      finding: { ...baseFinding, line: 1, symbolName: undefined, symbolKind: undefined },
+      language: "javascript",
+      content,
+      patch
+    });
+
+    expect(line).toBe(1);
   });
 
   it("falls back to first changed line when no preferred line exists", () => {

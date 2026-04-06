@@ -1,4 +1,4 @@
-import { formatInlineComment } from "./comment-formatter";
+import { formatInlineComment, formatReviewSummaryComment } from "./comment-formatter";
 import { resolveFindingLine } from "./line-targeting";
 import type { PerformanceAnalyzer, PullRequestClient } from "./ports";
 import { filterFindings } from "../domain/finding-filter";
@@ -147,7 +147,7 @@ export class PerformanceReviewService {
       repo: request.repo,
       pullNumber: request.pullNumber,
       commitId: request.headSha,
-      body: this.options.reviewSummary,
+      body: formatReviewSummaryComment(this.options.reviewSummary),
       comments: dedupedComments
     });
 
@@ -274,20 +274,20 @@ export class PerformanceReviewService {
   }
 
   private getSkipTraceBeforeContent(file: SupportedReviewFile): SkippedFileTrace | undefined {
-    if (this.options.skipGeneratedArtifacts && isGeneratedArtifactPath(file.path)) {
-      return {
-        path: file.path,
-        language: file.language,
-        reason: "generated_artifact",
-        patchCharacters: file.patch?.length
-      };
-    }
-
     if (shouldSkipByDirectoryRule(file.path, this.options.skipDirectories)) {
       return {
         path: file.path,
         language: file.language,
         reason: "directory_rule",
+        patchCharacters: file.patch?.length
+      };
+    }
+
+    if (this.options.skipGeneratedArtifacts && isGeneratedArtifactPath(file.path)) {
+      return {
+        path: file.path,
+        language: file.language,
+        reason: "generated_artifact",
         patchCharacters: file.patch?.length
       };
     }

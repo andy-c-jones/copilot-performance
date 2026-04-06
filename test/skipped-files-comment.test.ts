@@ -15,6 +15,7 @@ function createFakeOctokit(options?: { existingCommentBody?: string }) {
   });
   const createComment = vi.fn(async () => ({}));
   const updateComment = vi.fn(async () => ({}));
+  const deleteComment = vi.fn(async () => ({}));
 
   const octokit = {
     paginate,
@@ -22,12 +23,13 @@ function createFakeOctokit(options?: { existingCommentBody?: string }) {
       issues: {
         listComments: vi.fn(),
         createComment,
-        updateComment
+        updateComment,
+        deleteComment
       }
     }
   } as unknown as UpsertSkippedFilesCommentInput["octokit"];
 
-  return { octokit, paginate, createComment, updateComment };
+  return { octokit, paginate, createComment, updateComment, deleteComment };
 }
 
 const baseInput = {
@@ -60,6 +62,7 @@ describe("skipped files comment helper", () => {
     expect(fake.paginate).toHaveBeenCalledTimes(1);
     expect(fake.createComment).toHaveBeenCalledTimes(1);
     expect(fake.updateComment).not.toHaveBeenCalled();
+    expect(fake.deleteComment).not.toHaveBeenCalled();
   });
 
   it("updates existing marker comment when present", async () => {
@@ -74,6 +77,7 @@ describe("skipped files comment helper", () => {
 
     expect(fake.updateComment).toHaveBeenCalledTimes(1);
     expect(fake.createComment).not.toHaveBeenCalled();
+    expect(fake.deleteComment).not.toHaveBeenCalled();
   });
 
   it("does nothing when there are no skipped files", async () => {
@@ -85,9 +89,10 @@ describe("skipped files comment helper", () => {
       skippedFiles: []
     });
 
-    expect(fake.paginate).not.toHaveBeenCalled();
+    expect(fake.paginate).toHaveBeenCalledTimes(1);
     expect(fake.createComment).not.toHaveBeenCalled();
     expect(fake.updateComment).not.toHaveBeenCalled();
+    expect(fake.deleteComment).not.toHaveBeenCalled();
   });
 
   it("does nothing when all skipped files are only directory-rule skips", async () => {
@@ -99,12 +104,29 @@ describe("skipped files comment helper", () => {
       skippedFiles: [{ path: "dist/index.js", language: "javascript", reason: "directory_rule" }]
     });
 
-    expect(fake.paginate).not.toHaveBeenCalled();
+    expect(fake.paginate).toHaveBeenCalledTimes(1);
+    expect(fake.createComment).not.toHaveBeenCalled();
+    expect(fake.updateComment).not.toHaveBeenCalled();
+    expect(fake.deleteComment).not.toHaveBeenCalled();
+  });
+
+  it("deletes existing marker comment when only configured directory skips remain", async () => {
+    const fake = createFakeOctokit({
+      existingCommentBody: "<!-- copilot-performance-skipped-files -->\nold"
+    });
+
+    await upsertSkippedFilesComment({
+      octokit: fake.octokit,
+      ...baseInput,
+      skippedFiles: [{ path: "dist/index.js", language: "javascript", reason: "directory_rule" }]
+    });
+
+    expect(fake.deleteComment).toHaveBeenCalledTimes(1);
     expect(fake.createComment).not.toHaveBeenCalled();
     expect(fake.updateComment).not.toHaveBeenCalled();
   });
 
-  it("formats all known skip reasons in the comment body", async () => {
+  it("formats known non-directory skip reasons in the comment body", async () => {
     const fake = createFakeOctokit();
 
     await upsertSkippedFilesComment({
@@ -129,10 +151,11 @@ describe("skipped files comment helper", () => {
     });
 
     const createArgs = fake.createComment.mock.calls[0]?.[0];
+    expect(createArgs?.body).toContain("**Commenting tool:** `andy-c-jones/copilot-performance`");
     expect(createArgs?.body).toContain("generated/bundled artifact path");
-    expect(createArgs?.body).toContain("matched configured skip directory rule");
     expect(createArgs?.body).toContain("patch exceeds limit");
     expect(createArgs?.body).toContain("file content exceeds limit");
+    expect(createArgs?.body).not.toContain("dist/b.ts");
   });
 
   it("falls back to unknown reason text for unexpected skip reasons", async () => {

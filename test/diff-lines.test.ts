@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { extractAddedLinesFromPatch, findNearestChangedLine } from "../src/domain/diff-lines";
+import {
+  extractAddedLinesFromPatch,
+  extractRightSideLinesFromPatch,
+  findNearestChangedLine
+} from "../src/domain/diff-lines";
 
 describe("diff line helpers", () => {
   it("returns empty set when patch is missing", () => {
@@ -14,6 +18,19 @@ describe("diff line helpers", () => {
 
     const lines = [...extractAddedLinesFromPatch(patch)].sort((a, b) => a - b);
     expect(lines).toEqual([11, 12]);
+  });
+
+  it("extracts right-side lines from added and context patch lines", () => {
+    const patch = [
+      "@@ -20,3 +20,4 @@",
+      " export function runTask() {",
+      "+  const enabled = true;",
+      "   return enabled;",
+      " }"
+    ].join("\n");
+
+    const lines = [...extractRightSideLinesFromPatch(patch)].sort((a, b) => a - b);
+    expect(lines).toEqual([20, 21, 22, 23]);
   });
 
   it("handles malformed hunks and nearest line lookup", () => {

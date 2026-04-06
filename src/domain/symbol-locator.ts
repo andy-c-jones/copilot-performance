@@ -4,6 +4,18 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function normalizeSymbolName(symbolName: string): string {
+  const trimmed = symbolName.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  const withoutCallSuffix = trimmed.replace(/\(.*\)\s*$/, "");
+  const withoutGenerics = withoutCallSuffix.replace(/<[^>]+>\s*$/, "");
+  const segments = withoutGenerics.split(/::|[.#]/);
+  return (segments[segments.length - 1] ?? "").trim();
+}
+
 function jsTsPatterns(symbolName: string, symbolKind: SymbolKind): RegExp[] {
   const name = escapeRegExp(symbolName);
   const classPattern = new RegExp(`^\\s*(?:export\\s+)?(?:default\\s+)?class\\s+${name}\\b`);
@@ -78,7 +90,12 @@ export function locateSymbolDefinitionLine(input: {
     return undefined;
   }
 
-  const patterns = patternsFor(input.language, input.symbolName, input.symbolKind);
+  const normalizedSymbolName = normalizeSymbolName(input.symbolName);
+  if (!normalizedSymbolName) {
+    return undefined;
+  }
+
+  const patterns = patternsFor(input.language, normalizedSymbolName, input.symbolKind);
   if (patterns.length === 0) {
     return undefined;
   }

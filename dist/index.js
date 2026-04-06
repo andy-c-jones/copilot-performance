@@ -19519,6 +19519,29 @@ function logAnalysisOverview(input) {
 }
 //#endregion
 //#region src/application/comment-formatter.ts
+var REVIEW_COMMENT_MARKER = "<!-- copilot-performance-review -->";
+var SKIPPED_COMMENT_MARKER$1 = "<!-- copilot-performance-skipped-files -->";
+var TOOL_COMMENT_HEADER = "### ⚡ PR Performance Reviewer";
+var TOOL_COMMENT_ATTRIBUTION_LINE = "**Commenting tool:** `andy-c-jones/copilot-performance` (Copilot performance review action)";
+function formatAttributedToolComment(input) {
+	if (input.content.includes(input.marker)) return input.content;
+	return [
+		input.marker,
+		TOOL_COMMENT_HEADER,
+		"",
+		TOOL_COMMENT_ATTRIBUTION_LINE,
+		"",
+		input.content
+	].join("\n");
+}
+function describeSkippedFileReason(skippedFile) {
+	switch (skippedFile.reason) {
+		case "generated_artifact": return "generated/bundled artifact path";
+		case "patch_too_large": return `patch exceeds limit (${skippedFile.patchCharacters ?? 0} chars)`;
+		case "file_too_large": return `file content exceeds limit (${skippedFile.fileCharacters ?? 0} chars)`;
+		default: return "unknown skip reason";
+	}
+}
 function formatInlineComment(finding) {
 	return [
 		`**Performance issue:** ${finding.title}`,
@@ -19533,6 +19556,32 @@ function formatInlineComment(finding) {
 		`**Suggested improvement**\n${finding.recommendation}`
 	].join("\n");
 }
+function formatReviewSummaryComment(reviewSummary) {
+	return formatAttributedToolComment({
+		marker: REVIEW_COMMENT_MARKER,
+		content: reviewSummary
+	});
+}
+function getSkippedFilesCommentMarker() {
+	return SKIPPED_COMMENT_MARKER$1;
+}
+function formatSkippedFilesComment(input) {
+	const skippedRows = input.skippedFiles.map((file) => {
+		return `- \`${file.path}\` (${file.language}): ${describeSkippedFileReason(file)}`;
+	}).join("\n");
+	return formatAttributedToolComment({
+		marker: SKIPPED_COMMENT_MARKER$1,
+		content: [
+			"⚠️ Some files were skipped during performance review",
+			"",
+			`Configured model: \`${input.model}\``,
+			`Skip limits: patch <= ${input.maxPatchCharacters} chars, file <= ${input.maxFileCharacters} chars`,
+			`Skip directories: ${input.skipDirectories.join(", ") || "none"}`,
+			"",
+			skippedRows
+		].join("\n")
+	});
+}
 //#endregion
 //#region src/domain/diff-lines.ts
 function extractAddedLinesFromPatch(patch) {
@@ -19544,9 +19593,7 @@ function extractAddedLinesFromPatch(patch) {
 		if (line.startsWith("@@")) {
 			const match = /@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
 			if (!match) continue;
-			const newLineStart = match[1];
-			if (!newLineStart) continue;
-			currentNewLine = Number.parseInt(newLineStart, 10);
+			currentNewLine = Number.parseInt(match[1], 10);
 			continue;
 		}
 		if (currentNewLine === void 0) continue;
@@ -19556,6 +19603,31 @@ function extractAddedLinesFromPatch(patch) {
 			continue;
 		}
 		if (line.startsWith("-") && !line.startsWith("---")) continue;
+		currentNewLine += 1;
+	}
+	return result;
+}
+function extractRightSideLinesFromPatch(patch) {
+	if (!patch) return /* @__PURE__ */ new Set();
+	const result = /* @__PURE__ */ new Set();
+	const lines = patch.split("\n");
+	let currentNewLine;
+	for (const line of lines) {
+		if (line.startsWith("@@")) {
+			const match = /@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+			if (!match) continue;
+			currentNewLine = Number.parseInt(match[1], 10);
+			continue;
+		}
+		if (currentNewLine === void 0) continue;
+		if (line.startsWith("+") && !line.startsWith("+++")) {
+			result.add(currentNewLine);
+			currentNewLine += 1;
+			continue;
+		}
+		if (line.startsWith("-") && !line.startsWith("---")) continue;
+		if (line.startsWith("\\")) continue;
+		result.add(currentNewLine);
 		currentNewLine += 1;
 	}
 	return result;
@@ -19579,6 +19651,12 @@ function findNearestChangedLine(changedLines, target) {
 //#region src/domain/symbol-locator.ts
 function escapeRegExp(value) {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function normalizeSymbolName(symbolName) {
+	const trimmed = symbolName.trim();
+	if (!trimmed) return "";
+	const segments = trimmed.replace(/\(.*\)\s*$/, "").replace(/<[^>]+>\s*$/, "").split(/::|[.#]/);
+	return (segments[segments.length - 1] ?? "").trim();
 }
 function jsTsPatterns(symbolName, symbolKind) {
 	const name = escapeRegExp(symbolName);
@@ -19623,7 +19701,9 @@ function patternsFor(language, symbolName, symbolKind) {
 }
 function locateSymbolDefinitionLine(input) {
 	if (!input.symbolName) return;
-	const patterns = patternsFor(input.language, input.symbolName, input.symbolKind);
+	const normalizedSymbolName = normalizeSymbolName(input.symbolName);
+	if (!normalizedSymbolName) return;
+	const patterns = patternsFor(input.language, normalizedSymbolName, input.symbolKind);
 	if (patterns.length === 0) return;
 	const lines = input.content.split("\n");
 	for (const [lineIndex, line] of lines.entries()) if (patterns.some((pattern) => pattern.test(line))) return lineIndex + 1;
@@ -19632,15 +19712,17 @@ function locateSymbolDefinitionLine(input) {
 //#region src/application/line-targeting.ts
 function resolveFindingLine(input) {
 	const changedLines = extractAddedLinesFromPatch(input.patch);
-	const preferredLine = locateSymbolDefinitionLine({
+	const rightSideLines = extractRightSideLinesFromPatch(input.patch);
+	const symbolLine = locateSymbolDefinitionLine({
 		content: input.content,
 		language: input.language,
 		symbolName: input.finding.symbolName,
 		symbolKind: input.finding.symbolKind
-	}) ?? input.finding.line;
+	});
+	if (symbolLine && (rightSideLines.size === 0 || rightSideLines.has(symbolLine))) return symbolLine;
+	const preferredLine = input.finding.line;
 	if (!preferredLine) return changedLines.size > 0 ? Math.min(...changedLines) : void 0;
-	if (changedLines.size === 0) return preferredLine;
-	if (changedLines.has(preferredLine)) return preferredLine;
+	if (rightSideLines.size === 0 || rightSideLines.has(preferredLine)) return preferredLine;
 	return findNearestChangedLine(changedLines, preferredLine);
 }
 //#endregion
@@ -19748,7 +19830,7 @@ var PerformanceReviewService = class {
 			repo: request.repo,
 			pullNumber: request.pullNumber,
 			commitId: request.headSha,
-			body: this.options.reviewSummary,
+			body: formatReviewSummaryComment(this.options.reviewSummary),
 			comments: dedupedComments
 		});
 		return this.buildResult({
@@ -19847,16 +19929,16 @@ var PerformanceReviewService = class {
 		});
 	}
 	getSkipTraceBeforeContent(file) {
-		if (this.options.skipGeneratedArtifacts && isGeneratedArtifactPath(file.path)) return {
-			path: file.path,
-			language: file.language,
-			reason: "generated_artifact",
-			patchCharacters: file.patch?.length
-		};
 		if (shouldSkipByDirectoryRule(file.path, this.options.skipDirectories)) return {
 			path: file.path,
 			language: file.language,
 			reason: "directory_rule",
+			patchCharacters: file.patch?.length
+		};
+		if (this.options.skipGeneratedArtifacts && isGeneratedArtifactPath(file.path)) return {
+			path: file.path,
+			language: file.language,
+			reason: "generated_artifact",
 			patchCharacters: file.patch?.length
 		};
 		const patchCharacters = file.patch?.length ?? 0;
@@ -19909,32 +19991,8 @@ var PerformanceReviewService = class {
 };
 //#endregion
 //#region src/application/skipped-files-comment.ts
-var SKIPPED_COMMENT_MARKER = "<!-- copilot-performance-skipped-files -->";
-function describeSkippedFileReason(skippedFile) {
-	switch (skippedFile.reason) {
-		case "generated_artifact": return "generated/bundled artifact path";
-		case "directory_rule": return "matched configured skip directory rule";
-		case "patch_too_large": return `patch exceeds limit (${skippedFile.patchCharacters ?? 0} chars)`;
-		case "file_too_large": return `file content exceeds limit (${skippedFile.fileCharacters ?? 0} chars)`;
-		default: return "unknown skip reason";
-	}
-}
+var SKIPPED_COMMENT_MARKER = getSkippedFilesCommentMarker();
 async function upsertSkippedFilesComment(input) {
-	if (input.skippedFiles.length === 0) return;
-	if (!input.skippedFiles.some((file) => file.reason !== "directory_rule")) return;
-	const skippedRows = input.skippedFiles.map((file) => {
-		return `- \`${file.path}\` (${file.language}): ${describeSkippedFileReason(file)}`;
-	}).join("\n");
-	const body = [
-		SKIPPED_COMMENT_MARKER,
-		"⚠️ Some files were skipped during performance review",
-		"",
-		`Configured model: \`${input.model}\``,
-		`Skip limits: patch <= ${input.maxPatchCharacters} chars, file <= ${input.maxFileCharacters} chars`,
-		`Skip directories: ${input.skipDirectories.join(", ") || "none"}`,
-		"",
-		skippedRows
-	].join("\n");
 	const existingComment = (await input.octokit.paginate(input.octokit.rest.issues.listComments, {
 		owner: input.owner,
 		repo: input.repo,
@@ -19942,6 +20000,23 @@ async function upsertSkippedFilesComment(input) {
 		per_page: 100
 	})).find((comment) => {
 		return typeof comment.body === "string" && comment.body.includes(SKIPPED_COMMENT_MARKER);
+	});
+	const skippedFilesForComment = input.skippedFiles.filter((file) => file.reason !== "directory_rule");
+	if (skippedFilesForComment.length === 0) {
+		if (!existingComment) return;
+		await input.octokit.rest.issues.deleteComment({
+			owner: input.owner,
+			repo: input.repo,
+			comment_id: existingComment.id
+		});
+		return;
+	}
+	const body = formatSkippedFilesComment({
+		model: input.model,
+		maxPatchCharacters: input.maxPatchCharacters,
+		maxFileCharacters: input.maxFileCharacters,
+		skipDirectories: input.skipDirectories,
+		skippedFiles: skippedFilesForComment
 	});
 	if (existingComment) {
 		await input.octokit.rest.issues.updateComment({

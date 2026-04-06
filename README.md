@@ -15,6 +15,7 @@ A JavaScript GitHub Action for Marketplace that reviews pull requests for perfor
   - Common anti-patterns with practical severity.
 - Uses a configurable impact threshold (`all|low|medium|high`) with a default of `medium` and up.
 - Posts inline comments on changed lines, preferring method/function/class definition lines for symbol-level findings.
+- Posts a review summary comment with explicit action attribution so it is easy to distinguish from other review tools.
 - Posts nothing when no worthwhile suggestions are found.
 
 ## Inputs
@@ -32,7 +33,7 @@ A JavaScript GitHub Action for Marketplace that reviews pull requests for perfor
 | `max-file-characters`      | No       | `12000`                                               | Skip files with very large content snapshots                       |
 | `skip-generated-artifacts` | No       | `true`                                                | Skip `dist/`, `coverage/`, `*.map`, and `*.min.*`                  |
 | `skip`                     | No       | _empty_                                               | Comma-separated directory prefixes to skip                         |
-| `review-summary`           | No       | Built-in default                                      | Review summary text                                                |
+| `review-summary`           | No       | Built-in default                                      | Extra review summary text appended after action attribution header |
 
 ## Outputs
 
@@ -110,7 +111,7 @@ If Copilot is rate limited or temporarily unavailable, the action also exits suc
 
 Even when no comments are posted, the action logs a detailed **Performance analysis overview** section and emits `analysis-overview` so you can see what was checked and how findings were filtered.
 
-When files are skipped (for example, generated artifacts or size limits), the action posts a PR comment summarizing which files were skipped and why. Directory-rule-only skips (`skip`) do not produce a PR comment by themselves, but are included when other skip reasons are present.
+When files are skipped (for example, generated artifacts or size limits), the action posts an attributed PR comment summarizing which files were skipped and why. Directory-rule skips from `skip` are treated as expected configuration and are not included in this comment.
 
 ## GitHub Models limits
 
