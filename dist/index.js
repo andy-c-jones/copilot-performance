@@ -19520,8 +19520,28 @@ function logAnalysisOverview(input) {
 //#endregion
 //#region src/application/comment-formatter.ts
 var REVIEW_COMMENT_MARKER = "<!-- copilot-performance-review -->";
-var REVIEW_COMMENT_HEADER = "### ⚡ PR Performance Reviewer";
-var REVIEW_COMMENT_TOOL_LINE = "**Commenting tool:** `andy-c-jones/copilot-performance` (Copilot performance review action)";
+var SKIPPED_COMMENT_MARKER$1 = "<!-- copilot-performance-skipped-files -->";
+var TOOL_COMMENT_HEADER = "### ⚡ PR Performance Reviewer";
+var TOOL_COMMENT_ATTRIBUTION_LINE = "**Commenting tool:** `andy-c-jones/copilot-performance` (Copilot performance review action)";
+function formatAttributedToolComment(input) {
+	if (input.content.includes(input.marker)) return input.content;
+	return [
+		input.marker,
+		TOOL_COMMENT_HEADER,
+		"",
+		TOOL_COMMENT_ATTRIBUTION_LINE,
+		"",
+		input.content
+	].join("\n");
+}
+function describeSkippedFileReason(skippedFile) {
+	switch (skippedFile.reason) {
+		case "generated_artifact": return "generated/bundled artifact path";
+		case "patch_too_large": return `patch exceeds limit (${skippedFile.patchCharacters ?? 0} chars)`;
+		case "file_too_large": return `file content exceeds limit (${skippedFile.fileCharacters ?? 0} chars)`;
+		default: return "unknown skip reason";
+	}
+}
 function formatInlineComment(finding) {
 	return [
 		`**Performance issue:** ${finding.title}`,
@@ -19537,15 +19557,30 @@ function formatInlineComment(finding) {
 	].join("\n");
 }
 function formatReviewSummaryComment(reviewSummary) {
-	if (reviewSummary.includes(REVIEW_COMMENT_MARKER)) return reviewSummary;
-	return [
-		REVIEW_COMMENT_MARKER,
-		REVIEW_COMMENT_HEADER,
-		"",
-		REVIEW_COMMENT_TOOL_LINE,
-		"",
-		reviewSummary
-	].join("\n");
+	return formatAttributedToolComment({
+		marker: REVIEW_COMMENT_MARKER,
+		content: reviewSummary
+	});
+}
+function getSkippedFilesCommentMarker() {
+	return SKIPPED_COMMENT_MARKER$1;
+}
+function formatSkippedFilesComment(input) {
+	const skippedRows = input.skippedFiles.map((file) => {
+		return `- \`${file.path}\` (${file.language}): ${describeSkippedFileReason(file)}`;
+	}).join("\n");
+	return formatAttributedToolComment({
+		marker: SKIPPED_COMMENT_MARKER$1,
+		content: [
+			"⚠️ Some files were skipped during performance review",
+			"",
+			`Configured model: \`${input.model}\``,
+			`Skip limits: patch <= ${input.maxPatchCharacters} chars, file <= ${input.maxFileCharacters} chars`,
+			`Skip directories: ${input.skipDirectories.join(", ") || "none"}`,
+			"",
+			skippedRows
+		].join("\n")
+	});
 }
 //#endregion
 //#region src/domain/diff-lines.ts
@@ -19861,16 +19896,16 @@ var PerformanceReviewService = class {
 		});
 	}
 	getSkipTraceBeforeContent(file) {
-		if (this.options.skipGeneratedArtifacts && isGeneratedArtifactPath(file.path)) return {
-			path: file.path,
-			language: file.language,
-			reason: "generated_artifact",
-			patchCharacters: file.patch?.length
-		};
 		if (shouldSkipByDirectoryRule(file.path, this.options.skipDirectories)) return {
 			path: file.path,
 			language: file.language,
 			reason: "directory_rule",
+			patchCharacters: file.patch?.length
+		};
+		if (this.options.skipGeneratedArtifacts && isGeneratedArtifactPath(file.path)) return {
+			path: file.path,
+			language: file.language,
+			reason: "generated_artifact",
 			patchCharacters: file.patch?.length
 		};
 		const patchCharacters = file.patch?.length ?? 0;
@@ -19923,32 +19958,8 @@ var PerformanceReviewService = class {
 };
 //#endregion
 //#region src/application/skipped-files-comment.ts
-var SKIPPED_COMMENT_MARKER = "<!-- copilot-performance-skipped-files -->";
-function describeSkippedFileReason(skippedFile) {
-	switch (skippedFile.reason) {
-		case "generated_artifact": return "generated/bundled artifact path";
-		case "directory_rule": return "matched configured skip directory rule";
-		case "patch_too_large": return `patch exceeds limit (${skippedFile.patchCharacters ?? 0} chars)`;
-		case "file_too_large": return `file content exceeds limit (${skippedFile.fileCharacters ?? 0} chars)`;
-		default: return "unknown skip reason";
-	}
-}
+var SKIPPED_COMMENT_MARKER = getSkippedFilesCommentMarker();
 async function upsertSkippedFilesComment(input) {
-	if (input.skippedFiles.length === 0) return;
-	if (!input.skippedFiles.some((file) => file.reason !== "directory_rule")) return;
-	const skippedRows = input.skippedFiles.map((file) => {
-		return `- \`${file.path}\` (${file.language}): ${describeSkippedFileReason(file)}`;
-	}).join("\n");
-	const body = [
-		SKIPPED_COMMENT_MARKER,
-		"⚠️ Some files were skipped during performance review",
-		"",
-		`Configured model: \`${input.model}\``,
-		`Skip limits: patch <= ${input.maxPatchCharacters} chars, file <= ${input.maxFileCharacters} chars`,
-		`Skip directories: ${input.skipDirectories.join(", ") || "none"}`,
-		"",
-		skippedRows
-	].join("\n");
 	const existingComment = (await input.octokit.paginate(input.octokit.rest.issues.listComments, {
 		owner: input.owner,
 		repo: input.repo,
@@ -19956,6 +19967,23 @@ async function upsertSkippedFilesComment(input) {
 		per_page: 100
 	})).find((comment) => {
 		return typeof comment.body === "string" && comment.body.includes(SKIPPED_COMMENT_MARKER);
+	});
+	const skippedFilesForComment = input.skippedFiles.filter((file) => file.reason !== "directory_rule");
+	if (skippedFilesForComment.length === 0) {
+		if (!existingComment) return;
+		await input.octokit.rest.issues.deleteComment({
+			owner: input.owner,
+			repo: input.repo,
+			comment_id: existingComment.id
+		});
+		return;
+	}
+	const body = formatSkippedFilesComment({
+		model: input.model,
+		maxPatchCharacters: input.maxPatchCharacters,
+		maxFileCharacters: input.maxFileCharacters,
+		skipDirectories: input.skipDirectories,
+		skippedFiles: skippedFilesForComment
 	});
 	if (existingComment) {
 		await input.octokit.rest.issues.updateComment({

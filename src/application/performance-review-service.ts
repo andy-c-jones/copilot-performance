@@ -274,20 +274,20 @@ export class PerformanceReviewService {
   }
 
   private getSkipTraceBeforeContent(file: SupportedReviewFile): SkippedFileTrace | undefined {
-    if (this.options.skipGeneratedArtifacts && isGeneratedArtifactPath(file.path)) {
-      return {
-        path: file.path,
-        language: file.language,
-        reason: "generated_artifact",
-        patchCharacters: file.patch?.length
-      };
-    }
-
     if (shouldSkipByDirectoryRule(file.path, this.options.skipDirectories)) {
       return {
         path: file.path,
         language: file.language,
         reason: "directory_rule",
+        patchCharacters: file.patch?.length
+      };
+    }
+
+    if (this.options.skipGeneratedArtifacts && isGeneratedArtifactPath(file.path)) {
+      return {
+        path: file.path,
+        language: file.language,
+        reason: "generated_artifact",
         patchCharacters: file.patch?.length
       };
     }
