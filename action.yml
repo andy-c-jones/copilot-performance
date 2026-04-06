@@ -50,7 +50,7 @@ inputs:
     required: false
     default: ""
   review-summary:
-    description: "Body text used for the submitted pull request review"
+    description: "Additional body text appended after the action attribution header in the submitted pull request review"
     required: false
     default: "Performance review suggestions from Copilot. Address only if the impact aligns with your workload profile."
 

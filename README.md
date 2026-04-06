@@ -15,6 +15,7 @@ A JavaScript GitHub Action for Marketplace that reviews pull requests for perfor
   - Common anti-patterns with practical severity.
 - Uses a configurable impact threshold (`all|low|medium|high`) with a default of `medium` and up.
 - Posts inline comments on changed lines, preferring method/function/class definition lines for symbol-level findings.
+- Posts a review summary comment with explicit action attribution so it is easy to distinguish from other review tools.
 - Posts nothing when no worthwhile suggestions are found.
 
 ## Inputs
@@ -32,7 +33,7 @@ A JavaScript GitHub Action for Marketplace that reviews pull requests for perfor
 | `max-file-characters`      | No       | `12000`                                               | Skip files with very large content snapshots                       |
 | `skip-generated-artifacts` | No       | `true`                                                | Skip `dist/`, `coverage/`, `*.map`, and `*.min.*`                  |
 | `skip`                     | No       | _empty_                                               | Comma-separated directory prefixes to skip                         |
-| `review-summary`           | No       | Built-in default                                      | Review summary text                                                |
+| `review-summary`           | No       | Built-in default                                      | Extra review summary text appended after action attribution header |
 
 ## Outputs
 

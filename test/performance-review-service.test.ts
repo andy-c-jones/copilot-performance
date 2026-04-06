@@ -130,6 +130,9 @@ describe("performance review service", () => {
     expect(result.analysisTrace[0]?.path).toBe("src/a.ts");
     expect(result.skippedFiles).toEqual([]);
     expect(repoClient.submittedReviews).toHaveLength(1);
+    expect(firstReview?.body).toContain("<!-- copilot-performance-review -->");
+    expect(firstReview?.body).toContain("**Commenting tool:** `andy-c-jones/copilot-performance`");
+    expect(firstReview?.body).toContain("summary");
     expect(firstReview?.comments[0]?.line).toBe(1);
   });
 

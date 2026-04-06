@@ -1,4 +1,4 @@
-import { formatInlineComment } from "./comment-formatter";
+import { formatInlineComment, formatReviewSummaryComment } from "./comment-formatter";
 import { resolveFindingLine } from "./line-targeting";
 import type { PerformanceAnalyzer, PullRequestClient } from "./ports";
 import { filterFindings } from "../domain/finding-filter";
@@ -147,7 +147,7 @@ export class PerformanceReviewService {
       repo: request.repo,
       pullNumber: request.pullNumber,
       commitId: request.headSha,
-      body: this.options.reviewSummary,
+      body: formatReviewSummaryComment(this.options.reviewSummary),
       comments: dedupedComments
     });
 

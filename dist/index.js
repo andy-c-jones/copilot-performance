@@ -19519,6 +19519,9 @@ function logAnalysisOverview(input) {
 }
 //#endregion
 //#region src/application/comment-formatter.ts
+var REVIEW_COMMENT_MARKER = "<!-- copilot-performance-review -->";
+var REVIEW_COMMENT_HEADER = "### ⚡ PR Performance Reviewer";
+var REVIEW_COMMENT_TOOL_LINE = "**Commenting tool:** `andy-c-jones/copilot-performance` (Copilot performance review action)";
 function formatInlineComment(finding) {
 	return [
 		`**Performance issue:** ${finding.title}`,
@@ -19531,6 +19534,17 @@ function formatInlineComment(finding) {
 		`**Complexity and scale impact**\n${finding.complexity}`,
 		"",
 		`**Suggested improvement**\n${finding.recommendation}`
+	].join("\n");
+}
+function formatReviewSummaryComment(reviewSummary) {
+	if (reviewSummary.includes(REVIEW_COMMENT_MARKER)) return reviewSummary;
+	return [
+		REVIEW_COMMENT_MARKER,
+		REVIEW_COMMENT_HEADER,
+		"",
+		REVIEW_COMMENT_TOOL_LINE,
+		"",
+		reviewSummary
 	].join("\n");
 }
 //#endregion
@@ -19748,7 +19762,7 @@ var PerformanceReviewService = class {
 			repo: request.repo,
 			pullNumber: request.pullNumber,
 			commitId: request.headSha,
-			body: this.options.reviewSummary,
+			body: formatReviewSummaryComment(this.options.reviewSummary),
 			comments: dedupedComments
 		});
 		return this.buildResult({
